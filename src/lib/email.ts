@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { supabase } from "./supabase";
+import type { ListingRow } from "./supabase";
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
@@ -14,6 +15,76 @@ type EmailParams = {
 
 function fmtNum(n: number | null) {
   return n != null ? n.toLocaleString("en-US") : "N/A";
+}
+
+async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
+  const chronological = [...rows].reverse();
+  const labels = chronological.map((r) => r.date);
+  const asData = chronological.map((r) => r.allsurplus);
+  const gdData = chronological.map((r) => r.govdeals);
+
+  const config = {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "AllSurplus",
+          data: asData,
+          borderColor: "#2563eb",
+          backgroundColor: "rgba(37,99,235,0.1)",
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false,
+          spanGaps: true,
+        },
+        {
+          label: "GovDeals",
+          data: gdData,
+          borderColor: "#16a34a",
+          backgroundColor: "rgba(22,163,74,0.1)",
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      title: { display: true, text: "LQDT Active Listings (1 Year)" },
+      scales: {
+        xAxes: [{ ticks: { maxTicksLimit: 12, fontSize: 10 } }],
+        yAxes: [{
+          ticks: {
+            callback: (v: number) => (v / 1000).toFixed(0) + "k",
+          },
+        }],
+      },
+      legend: { position: "bottom" },
+    },
+  };
+
+  try {
+    const res = await fetch("https://quickchart.io/chart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chart: config,
+        width: 800,
+        height: 400,
+        backgroundColor: "white",
+        format: "png",
+      }),
+    });
+
+    if (!res.ok) return null;
+
+    const buffer = await res.arrayBuffer();
+    return Buffer.from(buffer).toString("base64");
+  } catch {
+    return null;
+  }
 }
 
 export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }: EmailParams) {
@@ -31,6 +102,20 @@ export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }
     .order("date", { ascending: false })
     .order("timestamp", { ascending: false });
 
+  const chartBase64 = await generateChartImage(rows ?? []);
+
+  const attachments: { filename: string; content: string; content_type: string; contentId: string }[] = [];
+  let chartHtml = "";
+  if (chartBase64) {
+    attachments.push({
+      filename: "chart.png",
+      content: chartBase64,
+      content_type: "image/png",
+      contentId: "chart_img",
+    });
+    chartHtml = `<img src="cid:chart_img" style="width:100%;max-width:800px;margin:16px 0;" alt="Listings Chart" />`;
+  }
+
   const tableRows = (rows ?? [])
     .map(
       (r) =>
@@ -46,8 +131,9 @@ export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }
     from: process.env.RESEND_FROM_EMAIL || "LQDT Tracker <notifications@resend.dev>",
     to: to.split(",").map((e) => e.trim()),
     subject: `LQDT Listings Snapshot — ${date}`,
+    attachments,
     html: `
-      <div style="font-family:system-ui,sans-serif;max-width:700px;">
+      <div style="font-family:system-ui,sans-serif;max-width:800px;">
         <h2 style="margin-bottom:4px;">LQDT Listings Snapshot</h2>
         <p style="color:#666;margin-top:0;">${date} ${timestamp} ET</p>
         <table style="margin-bottom:20px;">
@@ -56,7 +142,8 @@ export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }
             <td><strong>GovDeals:</strong> ${fmtNum(govdeals)} active listings</td>
           </tr>
         </table>
-        <h3>1-Year History</h3>
+        ${chartHtml}
+        <h3 style="margin-top:24px;">1-Year History</h3>
         <table style="border-collapse:collapse;font-size:13px;">
           <tr style="border-bottom:2px solid #333;">
             <th style="padding:4px 10px 4px 0;text-align:left;">Date</th>
