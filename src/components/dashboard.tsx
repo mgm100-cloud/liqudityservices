@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useRef, useState, useMemo } from "react";
 import type { ListingRow } from "@/lib/supabase";
 import { ListingsChart } from "./listings-chart";
 import { ListingsTable } from "./listings-table";
+import { EmailSnapshot } from "./email-snapshot";
 
 const RANGES = ["All", "3Y", "1Y", "6M", "3M", "1M"] as const;
 type Range = (typeof RANGES)[number];
@@ -24,6 +25,7 @@ function cutoffDate(range: Range): string | null {
 
 export function Dashboard({ listings }: { listings: ListingRow[] }) {
   const [range, setRange] = useState<Range>("All");
+  const chartRef = useRef<HTMLDivElement>(null);
   const latest = listings[0] ?? null;
 
   const filtered = useMemo(() => {
@@ -54,6 +56,8 @@ export function Dashboard({ listings }: { listings: ListingRow[] }) {
         </div>
       )}
 
+      <EmailSnapshot chartRef={chartRef} />
+
       <div className="flex gap-2 mb-4">
         {RANGES.map((r) => (
           <button
@@ -72,7 +76,9 @@ export function Dashboard({ listings }: { listings: ListingRow[] }) {
 
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-4">Trend</h2>
-        <ListingsChart data={filtered} allData={listings} />
+        <div ref={chartRef}>
+          <ListingsChart data={filtered} allData={listings} />
+        </div>
       </section>
 
       <section>
