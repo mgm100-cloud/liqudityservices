@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { scrapeListings } from "@/lib/scraper";
+import { scrapeMarketplaceMetrics } from "@/lib/marketplace-metrics";
+import { fetchNewContracts, fetchContractSummary } from "@/lib/contracts";
 import { sendDailySummary } from "@/lib/email";
 
 export const maxDuration = 60;
@@ -18,25 +20,75 @@ export async function GET(request: Request) {
   const date = now.toISOString().slice(0, 10);
   const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
-  const { allsurplus, govdeals } = await scrapeListings();
+  // Run all scrapes in parallel
+  const [listingResult, metricsResult, contractsResult] = await Promise.all([
+    scrapeListings(),
+    scrapeMarketplaceMetrics().catch(() => null),
+    Promise.all([
+      fetchNewContracts(30).catch(() => []),
+      fetchContractSummary().catch(() => null),
+    ]),
+  ]);
 
+  const { allsurplus, govdeals } = listingResult;
+  const [newContracts, contractSummary] = contractsResult;
+
+  // 1. Store listing counts
   const { error: dbError } = await supabase
     .from("listings")
     .insert({ date, timestamp, allsurplus, govdeals });
 
+  // 2. Store marketplace metrics
+  let metricsDb = { success: false, error: "skipped" };
+  if (metricsResult) {
+    const rows = [
+      { date, timestamp, ...metricsResult.allsurplus },
+      { date, timestamp, ...metricsResult.govdeals },
+    ];
+    const { error } = await supabase.from("marketplace_metrics").insert(rows);
+    metricsDb = error ? { success: false, error: error.message } : { success: true, error: "" };
+  }
+
+  // 3. Store new contracts (upsert to avoid duplicates)
+  let contractsDb = { newContracts: 0, snapshot: false };
+  if (newContracts.length > 0) {
+    const contractRows = newContracts.map((c) => ({
+      ...c,
+      first_seen_date: date,
+    }));
+    const { error } = await supabase
+      .from("federal_contracts")
+      .upsert(contractRows, { onConflict: "award_id", ignoreDuplicates: true });
+    contractsDb.newContracts = error ? 0 : newContracts.length;
+  }
+
+  // 4. Store contract snapshot
+  if (contractSummary) {
+    const { error } = await supabase.from("contract_snapshots").insert({
+      date,
+      total_active_contracts: contractSummary.total_active_contracts,
+      total_obligated_amount: contractSummary.total_obligated_amount,
+      new_contracts_last_30d: contractSummary.new_contracts_last_30d,
+      new_obligation_last_30d: contractSummary.new_obligation_last_30d,
+      top_agencies: contractSummary.top_agencies,
+    });
+    contractsDb.snapshot = !error;
+  }
+
+  // 5. Send email
   let emailResult: { success: boolean; error?: string; chartIncluded?: boolean; chartDebug?: string } = { success: false, error: "skipped" };
   if (process.env.RESEND_API_KEY) {
     emailResult = await sendDailySummary({ date, timestamp, allsurplus, govdeals });
   }
 
-  const summary = {
+  return NextResponse.json({
     date,
     timestamp,
     allsurplus,
     govdeals,
     db: dbError ? { error: dbError.message } : { success: true },
+    metrics: metricsDb,
+    contracts: contractsDb,
     email: emailResult,
-  };
-
-  return NextResponse.json(summary);
+  });
 }

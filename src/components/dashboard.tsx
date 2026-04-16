@@ -1,10 +1,12 @@
 "use client";
 
 import { useRef, useState, useMemo } from "react";
-import type { ListingRow } from "@/lib/supabase";
+import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow } from "@/lib/supabase";
 import { ListingsChart } from "./listings-chart";
 import { ListingsTable } from "./listings-table";
 import { EmailSnapshot } from "./email-snapshot";
+import { MarketplaceMetrics } from "./marketplace-metrics";
+import { FederalContracts } from "./federal-contracts";
 
 const RANGES = ["All", "3Y", "1Y", "6M", "3M", "1M"] as const;
 type Range = (typeof RANGES)[number];
@@ -23,7 +25,19 @@ function cutoffDate(range: Range): string | null {
   return now.toISOString().slice(0, 10);
 }
 
-export function Dashboard({ listings }: { listings: ListingRow[] }) {
+export function Dashboard({
+  listings,
+  metricsAllsurplus,
+  metricsGovdeals,
+  contracts,
+  contractSnapshot,
+}: {
+  listings: ListingRow[];
+  metricsAllsurplus: MarketplaceMetricsRow | null;
+  metricsGovdeals: MarketplaceMetricsRow | null;
+  contracts: FederalContractRow[];
+  contractSnapshot: ContractSnapshotRow | null;
+}) {
   const [range, setRange] = useState<Range>("All");
   const chartRef = useRef<HTMLDivElement>(null);
   const latest = listings[0] ?? null;
@@ -79,6 +93,16 @@ export function Dashboard({ listings }: { listings: ListingRow[] }) {
         <div ref={chartRef}>
           <ListingsChart data={filtered} allData={listings} />
         </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-4">Marketplace Metrics</h2>
+        <MarketplaceMetrics allsurplus={metricsAllsurplus} govdeals={metricsGovdeals} />
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-4">Federal Contracts</h2>
+        <FederalContracts contracts={contracts} snapshot={contractSnapshot} />
       </section>
 
       <section>

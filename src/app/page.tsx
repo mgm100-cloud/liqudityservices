@@ -1,17 +1,42 @@
 import { supabase } from "@/lib/supabase";
-import type { ListingRow } from "@/lib/supabase";
+import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow } from "@/lib/supabase";
 import { Dashboard } from "@/components/dashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const { data } = await supabase
-    .from("listings")
-    .select("*")
-    .order("date", { ascending: false })
-    .order("timestamp", { ascending: false });
+  const [listingsRes, metricsRes, contractsRes, snapshotsRes] = await Promise.all([
+    supabase
+      .from("listings")
+      .select("*")
+      .order("date", { ascending: false })
+      .order("timestamp", { ascending: false }),
+    supabase
+      .from("marketplace_metrics")
+      .select("*")
+      .order("date", { ascending: false })
+      .order("timestamp", { ascending: false })
+      .limit(2),
+    supabase
+      .from("federal_contracts")
+      .select("*")
+      .order("start_date", { ascending: false })
+      .limit(20),
+    supabase
+      .from("contract_snapshots")
+      .select("*")
+      .order("date", { ascending: false })
+      .limit(1),
+  ]);
 
-  const listings: ListingRow[] = data ?? [];
+  const listings: ListingRow[] = listingsRes.data ?? [];
+
+  const metricsRows: MarketplaceMetricsRow[] = metricsRes.data ?? [];
+  const latestAllsurplus = metricsRows.find((r) => r.platform === "AD") ?? null;
+  const latestGovdeals = metricsRows.find((r) => r.platform === "GD") ?? null;
+
+  const contracts: FederalContractRow[] = contractsRes.data ?? [];
+  const contractSnapshot: ContractSnapshotRow | null = snapshotsRes.data?.[0] ?? null;
 
   return (
     <main className="px-6 py-10">
@@ -19,7 +44,13 @@ export default async function Home() {
       <p className="text-gray-500 text-sm mb-8">
         Daily active listing counts for AllSurplus and GovDeals
       </p>
-      <Dashboard listings={listings} />
+      <Dashboard
+        listings={listings}
+        metricsAllsurplus={latestAllsurplus}
+        metricsGovdeals={latestGovdeals}
+        contracts={contracts}
+        contractSnapshot={contractSnapshot}
+      />
     </main>
   );
 }
