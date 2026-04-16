@@ -17,16 +17,16 @@ function fmtNum(n: number | null) {
   return n != null ? n.toLocaleString("en-US") : "N/A";
 }
 
-async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
+async function generateChartImage(rows: ListingRow[]): Promise<{ image: string | null; debug?: string }> {
   const withData = rows.filter((r) => r.allsurplus != null || r.govdeals != null);
-  if (withData.length === 0) return null;
+  if (withData.length === 0) return { image: null, debug: "no data rows" };
 
   const chronological = [...withData].reverse();
   const labels = chronological.map((r) => r.date);
   const asData = chronological.map((r) => (r.allsurplus != null ? r.allsurplus : null));
   const gdData = chronological.map((r) => (r.govdeals != null ? r.govdeals : null));
 
-  const chartString = JSON.stringify({
+  const chartConfig = {
     type: "line",
     data: {
       labels,
@@ -59,28 +59,33 @@ async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
       },
       legend: { position: "bottom" },
     },
-  });
+  };
 
   try {
+    const postBody = JSON.stringify({
+      chart: chartConfig,
+      width: 800,
+      height: 400,
+      backgroundColor: "white",
+      format: "png",
+      version: "2",
+    });
+
     const res = await fetch("https://quickchart.io/chart", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chart: chartString,
-        width: 800,
-        height: 400,
-        backgroundColor: "white",
-        format: "png",
-        version: "2",
-      }),
+      body: postBody,
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "(could not read body)");
+      return { image: null, debug: `quickchart ${res.status}: ${errBody.slice(0, 300)}` };
+    }
 
     const buffer = await res.arrayBuffer();
-    return Buffer.from(buffer).toString("base64");
-  } catch {
-    return null;
+    return { image: Buffer.from(buffer).toString("base64"), debug: `ok, ${buffer.byteLength} bytes` };
+  } catch (err) {
+    return { image: null, debug: `fetch error: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
@@ -99,14 +104,14 @@ export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }
     .order("date", { ascending: false })
     .order("timestamp", { ascending: false });
 
-  const chartBase64 = await generateChartImage(rows ?? []);
+  const chartResult = await generateChartImage(rows ?? []);
 
   const attachments: { filename: string; content: string; content_type: string; contentId: string }[] = [];
   let chartHtml = "";
-  if (chartBase64) {
+  if (chartResult.image) {
     attachments.push({
       filename: "chart.png",
-      content: chartBase64,
+      content: chartResult.image,
       content_type: "image/png",
       contentId: "chart_img",
     });
@@ -154,6 +159,6 @@ export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }
   });
 
   return error
-    ? { success: false, error: error.message, chartIncluded: !!chartBase64 }
-    : { success: true, chartIncluded: !!chartBase64 };
+    ? { success: false, error: error.message, chartIncluded: !!chartResult.image, chartDebug: chartResult.debug }
+    : { success: true, chartIncluded: !!chartResult.image, chartDebug: chartResult.debug };
 }
