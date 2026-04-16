@@ -86,7 +86,7 @@ export function ListingsChart({ data, allData }: { data: ListingRow[]; allData: 
   const hasYoY = chartData.some((r) => r["AS YoY %"] != null || r["GD YoY %"] != null);
 
   return (
-    <ResponsiveContainer width="100%" height={420}>
+    <ResponsiveContainer width="100%" height={600}>
       <LineChart data={chartData} margin={{ top: 5, right: hasYoY ? 60 : 20, bottom: 5, left: 20 }}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
