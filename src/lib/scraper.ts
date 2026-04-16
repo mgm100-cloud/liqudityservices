@@ -1,68 +1,69 @@
-import chromium from "@sparticuz/chromium";
-import puppeteer from "puppeteer-core";
-
 type ScrapeResult = {
   allsurplus: number | null;
   govdeals: number | null;
 };
 
-const URLS = {
-  allsurplus:
-    "https://www.allsurplus.com/en/search?isAdvSearch=1&timing=bySimple&timeType=atauction&ps=24&locationType=state&sf=bestfit&so=asc",
-  govdeals:
-    "https://www.govdeals.com/en/search?isAdvSearch=1&timing=bySimple&timeType=atauction&ps=24&locationType=state&sf=bestfit&so=asc",
-};
+const MAESTRO_URL = process.env.MAESTRO_API_URL || "https://maestro.lqdt1.com";
+const MAESTRO_KEY = process.env.MAESTRO_API_KEY || "af93060f-337e-428c-87b8-c74b5837d6cd";
 
-async function extractResultCount(
-  page: Awaited<ReturnType<Awaited<ReturnType<typeof puppeteer.launch>>["newPage"]>>,
-  url: string,
-): Promise<number | null> {
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+function buildPayload(businessId: "AD" | "GD") {
+  return {
+    category: "",
+    groupIds: [],
+    businessId,
+    searchText: "",
+    isQAL: false,
+    locationId: null,
+    model: "",
+    makebrand: "",
+    accountIds: [],
+    eventId: null,
+    auctionTypeId: null,
+    page: 1,
+    displayRows: 1,
+    sortField: "bestfit",
+    sortOrder: "asc",
+    requestType: "search",
+    responseStyle: "",
+    facets: [],
+    facetsFilter: [],
+    timeType: "atauction",
+    sellerTypeId: null,
+  };
+}
 
-  // Wait for the results count text to appear (pattern: "X,XXX Results")
+async function fetchListingCount(businessId: "AD" | "GD"): Promise<number | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
   try {
-    await page.waitForFunction(
-      () => {
-        const body = document.body?.innerText || "";
-        return /[\d,]+\s+Results/i.test(body);
+    const res = await fetch(`${MAESTRO_URL}/search/list`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": MAESTRO_KEY,
+        "x-user-id": "-1",
+        "x-api-correlation-id": crypto.randomUUID(),
       },
-      { timeout: 20000 },
-    );
+      body: JSON.stringify(buildPayload(businessId)),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+
+    const totalCount = res.headers.get("x-total-count");
+    return totalCount ? parseInt(totalCount, 10) : null;
   } catch {
-    // If waiting times out, still try to parse what we have
-  }
-
-  const count = await page.evaluate(() => {
-    const body = document.body?.innerText || "";
-    const match = body.match(/([\d,]+)\s+Results/i);
-    if (match) {
-      return parseInt(match[1].replace(/,/g, ""), 10);
-    }
     return null;
-  });
-
-  return count;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function scrapeListings(): Promise<ScrapeResult> {
-  const browser = await puppeteer.launch({
-    args: chromium.args,
-    defaultViewport: { width: 1280, height: 720 },
-    executablePath: await chromium.executablePath(),
-    headless: true,
-  });
-
-  try {
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    );
-
-    const allsurplus = await extractResultCount(page, URLS.allsurplus);
-    const govdeals = await extractResultCount(page, URLS.govdeals);
-
-    return { allsurplus, govdeals };
-  } finally {
-    await browser.close();
-  }
+  const [allsurplus, govdeals] = await Promise.all([
+    fetchListingCount("AD"),
+    fetchListingCount("GD"),
+  ]);
+  return { allsurplus, govdeals };
 }

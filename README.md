@@ -7,7 +7,7 @@ Daily scraper and dashboard for Liquidity Services marketplace active listing co
 - **Next.js** (App Router) — dashboard UI + API routes
 - **Supabase** — PostgreSQL database for historical data
 - **Vercel Cron** — scheduled daily scrape at 6 PM UTC
-- **Puppeteer + Chromium** — headless browser scraping of SPA sites
+- **Maestro API** — direct API calls to Liquidity Services search backend (no headless browser needed)
 - **Resend** — optional email notifications after each scrape
 - **Recharts** — trend chart on dashboard
 
@@ -26,6 +26,8 @@ Copy `.env.local.example` to `.env.local` and fill in your values. On Vercel, se
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon/public key |
 | `CRON_SECRET` | Yes | Secret for authenticating cron requests |
+| `MAESTRO_API_URL` | No | Maestro API base URL (defaults to `https://maestro.lqdt1.com`) |
+| `MAESTRO_API_KEY` | No | Maestro API key (defaults to public key from LS frontend) |
 | `RESEND_API_KEY` | No | Resend API key for email notifications |
 | `RESEND_FROM_EMAIL` | No | Sender address for emails |
 | `NOTIFICATION_EMAIL` | No | Comma-separated recipient emails |
