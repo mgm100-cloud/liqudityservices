@@ -18,14 +18,15 @@ function fmtNum(n: number | null) {
 }
 
 async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
-  // Filter to rows with at least one non-null value, then sort chronologically
   const withData = rows.filter((r) => r.allsurplus != null || r.govdeals != null);
+  if (withData.length === 0) return null;
+
   const chronological = [...withData].reverse();
   const labels = chronological.map((r) => r.date);
-  const asData = chronological.map((r) => r.allsurplus ?? (undefined as unknown as number));
-  const gdData = chronological.map((r) => r.govdeals ?? (undefined as unknown as number));
+  const asData = chronological.map((r) => (r.allsurplus != null ? r.allsurplus : null));
+  const gdData = chronological.map((r) => (r.govdeals != null ? r.govdeals : null));
 
-  const config = {
+  const chartString = JSON.stringify({
     type: "line",
     data: {
       labels,
@@ -54,22 +55,23 @@ async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
       title: { display: true, text: "LQDT Active Listings (1 Year)" },
       scales: {
         xAxes: [{ ticks: { maxTicksLimit: 12, fontSize: 10 } }],
-        yAxes: [{}],
+        yAxes: [{ ticks: { beginAtZero: false } }],
       },
       legend: { position: "bottom" },
     },
-  };
+  });
 
   try {
     const res = await fetch("https://quickchart.io/chart", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chart: config,
+        chart: chartString,
         width: 800,
         height: 400,
         backgroundColor: "white",
         format: "png",
+        version: "2",
       }),
     });
 
