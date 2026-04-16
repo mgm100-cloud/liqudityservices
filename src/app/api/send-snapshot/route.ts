@@ -37,14 +37,15 @@ export async function POST(request: Request) {
     )
     .join("");
 
-  const attachments: { filename: string; content: Buffer; content_id: string }[] = [];
+  const attachments: { filename: string; content: string; content_type: string; contentId: string }[] = [];
   let chartHtml = "";
   if (chartImage && typeof chartImage === "string" && chartImage.startsWith("data:image/")) {
     const base64 = chartImage.split(",")[1];
     attachments.push({
       filename: "chart.png",
-      content: Buffer.from(base64, "base64"),
-      content_id: "chart_img",
+      content: base64,
+      content_type: "image/png",
+      contentId: "chart_img",
     });
     chartHtml = `<img src="cid:chart_img" style="width:100%;max-width:900px;margin:16px 0;" alt="Listings Chart" />`;
   }
