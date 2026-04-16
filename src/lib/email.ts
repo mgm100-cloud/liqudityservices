@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { supabase } from "./supabase";
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
@@ -11,30 +12,58 @@ type EmailParams = {
   govdeals: number | null;
 };
 
+function fmtNum(n: number | null) {
+  return n != null ? n.toLocaleString("en-US") : "N/A";
+}
+
 export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }: EmailParams) {
   const to = process.env.NOTIFICATION_EMAIL;
   if (!to) return { success: false, error: "NOTIFICATION_EMAIL not set" };
 
-  const formatCount = (n: number | null) =>
-    n !== null ? n.toLocaleString("en-US") : "N/A (scrape failed)";
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const cutoff = oneYearAgo.toISOString().slice(0, 10);
+
+  const { data: rows } = await supabase
+    .from("listings")
+    .select("*")
+    .gte("date", cutoff)
+    .order("date", { ascending: false })
+    .order("timestamp", { ascending: false });
+
+  const tableRows = (rows ?? [])
+    .map(
+      (r) =>
+        `<tr>
+          <td style="padding:3px 10px 3px 0;border-bottom:1px solid #eee;">${r.date}</td>
+          <td style="padding:3px 10px 3px 0;border-bottom:1px solid #eee;text-align:right;">${fmtNum(r.allsurplus)}</td>
+          <td style="padding:3px 0;border-bottom:1px solid #eee;text-align:right;">${fmtNum(r.govdeals)}</td>
+        </tr>`,
+    )
+    .join("");
 
   const { error } = await getResend().emails.send({
     from: process.env.RESEND_FROM_EMAIL || "LQDT Tracker <notifications@resend.dev>",
     to: to.split(",").map((e) => e.trim()),
     subject: `LQDT Listings Snapshot — ${date}`,
     html: `
-      <div style="font-family: system-ui, sans-serif; max-width: 480px;">
-        <h2 style="margin-bottom: 4px;">LQDT Listings Snapshot</h2>
-        <p style="color: #666; margin-top: 0;">${date} ${timestamp} ET</p>
-        <table style="border-collapse: collapse; width: 100%;">
-          <tr style="border-bottom: 1px solid #eee;">
-            <td style="padding: 8px 0; font-weight: 600;">AllSurplus</td>
-            <td style="padding: 8px 0; text-align: right;">${formatCount(allsurplus)} active listings</td>
-          </tr>
+      <div style="font-family:system-ui,sans-serif;max-width:700px;">
+        <h2 style="margin-bottom:4px;">LQDT Listings Snapshot</h2>
+        <p style="color:#666;margin-top:0;">${date} ${timestamp} ET</p>
+        <table style="margin-bottom:20px;">
           <tr>
-            <td style="padding: 8px 0; font-weight: 600;">GovDeals</td>
-            <td style="padding: 8px 0; text-align: right;">${formatCount(govdeals)} active listings</td>
+            <td style="padding-right:24px;"><strong>AllSurplus:</strong> ${fmtNum(allsurplus)} active listings</td>
+            <td><strong>GovDeals:</strong> ${fmtNum(govdeals)} active listings</td>
           </tr>
+        </table>
+        <h3>1-Year History</h3>
+        <table style="border-collapse:collapse;font-size:13px;">
+          <tr style="border-bottom:2px solid #333;">
+            <th style="padding:4px 10px 4px 0;text-align:left;">Date</th>
+            <th style="padding:4px 10px 4px 0;text-align:right;">AllSurplus</th>
+            <th style="padding:4px 0;text-align:right;">GovDeals</th>
+          </tr>
+          ${tableRows}
         </table>
       </div>
     `,
