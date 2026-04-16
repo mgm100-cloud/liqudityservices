@@ -22,9 +22,20 @@ async function generateChartImage(rows: ListingRow[]): Promise<{ image: string |
   if (withData.length === 0) return { image: null, debug: "no data rows" };
 
   const chronological = [...withData].reverse();
-  const labels = chronological.map((r) => r.date);
-  const asData = chronological.map((r) => (r.allsurplus != null ? r.allsurplus : null));
-  const gdData = chronological.map((r) => (r.govdeals != null ? r.govdeals : null));
+
+  // QuickChart free tier allows max 250 labels — downsample if needed
+  const MAX_LABELS = 250;
+  let sampled = chronological;
+  if (chronological.length > MAX_LABELS) {
+    const step = chronological.length / MAX_LABELS;
+    const indices = Array.from({ length: MAX_LABELS }, (_, i) => Math.round(i * step));
+    indices[indices.length - 1] = chronological.length - 1;
+    sampled = indices.map((i) => chronological[i]);
+  }
+
+  const labels = sampled.map((r) => r.date);
+  const asData = sampled.map((r) => (r.allsurplus != null ? r.allsurplus : null));
+  const gdData = sampled.map((r) => (r.govdeals != null ? r.govdeals : null));
 
   const chartConfig = {
     type: "line",
