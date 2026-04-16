@@ -8,8 +8,7 @@ export async function GET() {
     .from("listings")
     .select("*")
     .order("date", { ascending: false })
-    .order("timestamp", { ascending: false })
-    .limit(365);
+    .order("timestamp", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

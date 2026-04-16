@@ -1,15 +1,36 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import type { ListingRow } from "@/lib/supabase";
 import { ListingsChart } from "./listings-chart";
 import { ListingsTable } from "./listings-table";
+
+const RANGES = ["All", "3Y", "1Y", "6M", "3M", "1M"] as const;
+type Range = (typeof RANGES)[number];
 
 function fmt(n: number | null | undefined) {
   return n != null ? n.toLocaleString("en-US") : "—";
 }
 
+function cutoffDate(range: Range): string | null {
+  if (range === "All") return null;
+  const now = new Date();
+  const months: Record<Exclude<Range, "All">, number> = {
+    "3Y": 36, "1Y": 12, "6M": 6, "3M": 3, "1M": 1,
+  };
+  now.setMonth(now.getMonth() - months[range]);
+  return now.toISOString().slice(0, 10);
+}
+
 export function Dashboard({ listings }: { listings: ListingRow[] }) {
+  const [range, setRange] = useState<Range>("All");
   const latest = listings[0] ?? null;
+
+  const filtered = useMemo(() => {
+    const cutoff = cutoffDate(range);
+    if (!cutoff) return listings;
+    return listings.filter((r) => r.date >= cutoff);
+  }, [listings, range]);
 
   return (
     <>
@@ -33,14 +54,30 @@ export function Dashboard({ listings }: { listings: ListingRow[] }) {
         </div>
       )}
 
+      <div className="flex gap-2 mb-4">
+        {RANGES.map((r) => (
+          <button
+            key={r}
+            onClick={() => setRange(r)}
+            className={`px-3 py-1 text-sm rounded-md border transition-colors ${
+              range === r
+                ? "bg-gray-900 text-white border-gray-900"
+                : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
+            }`}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-4">Trend</h2>
-        <ListingsChart data={listings} />
+        <ListingsChart data={filtered} allData={listings} />
       </section>
 
       <section>
         <h2 className="text-lg font-semibold mb-4">History</h2>
-        <ListingsTable data={listings} />
+        <ListingsTable data={filtered} />
       </section>
     </>
   );
