@@ -7,6 +7,7 @@ const NAME_VARIANTS = [
   "GovDeals",
   "Government Liquidation",
   "AllSurplus",
+  "Bid4Assets",
 ];
 
 const NAICS_CODES = ["423930", "453310", "561990"];
