@@ -18,10 +18,12 @@ function fmtNum(n: number | null) {
 }
 
 async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
-  const chronological = [...rows].reverse();
+  // Filter to rows with at least one non-null value, then sort chronologically
+  const withData = rows.filter((r) => r.allsurplus != null || r.govdeals != null);
+  const chronological = [...withData].reverse();
   const labels = chronological.map((r) => r.date);
-  const asData = chronological.map((r) => r.allsurplus);
-  const gdData = chronological.map((r) => r.govdeals);
+  const asData = chronological.map((r) => r.allsurplus ?? (undefined as unknown as number));
+  const gdData = chronological.map((r) => r.govdeals ?? (undefined as unknown as number));
 
   const config = {
     type: "line",
@@ -32,7 +34,6 @@ async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
           label: "AllSurplus",
           data: asData,
           borderColor: "#2563eb",
-          backgroundColor: "rgba(37,99,235,0.1)",
           borderWidth: 2,
           pointRadius: 0,
           fill: false,
@@ -42,7 +43,6 @@ async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
           label: "GovDeals",
           data: gdData,
           borderColor: "#16a34a",
-          backgroundColor: "rgba(22,163,74,0.1)",
           borderWidth: 2,
           pointRadius: 0,
           fill: false,
@@ -51,11 +51,10 @@ async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
       ],
     },
     options: {
-      responsive: true,
       title: { display: true, text: "LQDT Active Listings (1 Year)" },
       scales: {
         xAxes: [{ ticks: { maxTicksLimit: 12, fontSize: 10 } }],
-        yAxes: [{ ticks: { min: 0 } }],
+        yAxes: [{}],
       },
       legend: { position: "bottom" },
     },
