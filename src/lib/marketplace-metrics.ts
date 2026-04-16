@@ -89,30 +89,27 @@ function computeMetrics(
   const twentyFourHoursMs = 24 * 60 * 60 * 1000;
 
   for (const listing of listings) {
-    const bids = safeNumber(listing.numberOfBids);
+    const bids = safeNumber(listing.bidCount);
     totalBids += bids;
     if (bids > 0) listingsWithBids++;
 
-    totalCurrentPrice += safeNumber(listing.currentPrice);
-    totalWatchCount += safeNumber(listing.watchCount);
+    totalCurrentPrice += safeNumber(listing.currentBid);
+    totalWatchCount += safeNumber(listing.bidWatchId);
 
-    // Seller tracking
-    const sellerId = listing.sellerId;
+    // Seller tracking — use accountId as the unique seller identifier
+    const sellerId = listing.accountId;
     if (sellerId != null) sellerIds.add(String(sellerId));
 
-    // Category tracking
-    const categoryName = listing.categoryName;
+    // Category tracking — API uses categoryDescription
+    const categoryName = listing.categoryDescription;
     if (typeof categoryName === "string" && categoryName.length > 0) {
       categoryCounts[categoryName] = (categoryCounts[categoryName] || 0) + 1;
     }
 
-    // Closing within 24 hours
-    const endDateTime = listing.auctionEndDateTime;
-    if (typeof endDateTime === "string" || typeof endDateTime === "number") {
-      const endMs =
-        typeof endDateTime === "number"
-          ? endDateTime
-          : new Date(endDateTime).getTime();
+    // Closing within 24 hours — API uses assetAuctionEndDateUtc
+    const endDateTime = listing.assetAuctionEndDateUtc;
+    if (typeof endDateTime === "string") {
+      const endMs = new Date(endDateTime).getTime();
       if (!Number.isNaN(endMs) && endMs > now && endMs - now <= twentyFourHoursMs) {
         listingsClosing24h++;
       }
@@ -180,12 +177,11 @@ async function fetchPlatformMetrics(
       totalListings = data.searchResultCount;
     }
 
-    // Extract listings array — handle common response shapes
     let listings: Record<string, unknown>[] = [];
-    if (Array.isArray(data?.searchResults)) {
+    if (Array.isArray(data?.assetSearchResults)) {
+      listings = data.assetSearchResults;
+    } else if (Array.isArray(data?.searchResults)) {
       listings = data.searchResults;
-    } else if (Array.isArray(data?.results)) {
-      listings = data.results;
     } else if (Array.isArray(data)) {
       listings = data;
     }
