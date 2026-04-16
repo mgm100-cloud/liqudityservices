@@ -55,11 +55,7 @@ async function generateChartImage(rows: ListingRow[]): Promise<string | null> {
       title: { display: true, text: "LQDT Active Listings (1 Year)" },
       scales: {
         xAxes: [{ ticks: { maxTicksLimit: 12, fontSize: 10 } }],
-        yAxes: [{
-          ticks: {
-            callback: (v: number) => (v / 1000).toFixed(0) + "k",
-          },
-        }],
+        yAxes: [{ ticks: { min: 0 } }],
       },
       legend: { position: "bottom" },
     },
@@ -156,5 +152,7 @@ export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }
     `,
   });
 
-  return error ? { success: false, error: error.message } : { success: true };
+  return error
+    ? { success: false, error: error.message, chartIncluded: !!chartBase64 }
+    : { success: true, chartIncluded: !!chartBase64 };
 }
