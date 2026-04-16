@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     .from("listings")
     .insert({ date, timestamp, allsurplus, govdeals });
 
-  let emailResult: { success: boolean; error?: string } = { success: false, error: "skipped" };
+  let emailResult: { success: boolean; error?: string; chartIncluded?: boolean } = { success: false, error: "skipped" };
   if (process.env.RESEND_API_KEY) {
     emailResult = await sendDailySummary({ date, timestamp, allsurplus, govdeals });
   }
