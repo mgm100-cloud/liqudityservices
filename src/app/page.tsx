@@ -31,7 +31,7 @@ export default async function Home() {
       .from("marketplace_sellers")
       .select("*")
       .order("date", { ascending: false })
-      .order("listing_count", { ascending: false })
+      .order("total_current_bid", { ascending: false })
       .limit(200),
   ]);
 

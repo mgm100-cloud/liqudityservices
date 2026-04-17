@@ -194,7 +194,7 @@ function computeMetrics(
     topCategories[name] = count;
   }
 
-  const sellers = Array.from(sellerMap.values()).sort((a, b) => b.listing_count - a.listing_count);
+  const sellers = Array.from(sellerMap.values()).sort((a, b) => b.total_current_bid - a.total_current_bid);
 
   return {
     platform,
