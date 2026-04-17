@@ -35,7 +35,7 @@ function PlatformSection({ label, color, data }: { label: string; color: string;
         <MetricCard label="Total Bids (sample)" value={fmt(data.total_bids)} sub={`${fmt(data.sample_size)} sampled`} />
         <MetricCard label="Avg Bids/Listing" value={data.avg_bids_per_listing?.toFixed(1) ?? "—"} />
         <MetricCard label="Bid Rate" value={fmtPct(data.bid_rate)} sub={`${fmt(data.listings_with_bids)} with bids`} />
-        <MetricCard label="GMV Proxy (sample)" value={fmtDollar(data.total_current_price)} />
+        <MetricCard label="GMV Proxy USD (sample)" value={fmtDollar(data.total_current_price)} />
         <MetricCard label="Unique Sellers" value={fmt(data.unique_seller_count)} />
         <MetricCard label="Closing in 24h" value={fmt(data.listings_closing_24h)} />
         <MetricCard label="Avg Watch Count" value={data.avg_watch_count?.toFixed(1) ?? "—"} />

@@ -49,7 +49,7 @@ function SellerTable({ title, color, sellers }: { title: string; color: string; 
               <th className="py-1.5 pr-4 text-left">Location</th>
               <th className="py-1.5 pr-4 text-right">Listings</th>
               <th className="py-1.5 pr-4 text-right">Bids</th>
-              <th className="py-1.5 text-right">GMV</th>
+              <th className="py-1.5 text-right">GMV (USD)</th>
             </tr>
           </thead>
           <tbody>

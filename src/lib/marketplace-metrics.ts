@@ -1,5 +1,39 @@
 import { randomUUID } from "node:crypto";
 
+// Map Maestro currency codes to ISO codes
+const CURRENCY_MAP: Record<string, string> = {
+  USD: "USD", ZAR: "ZAR", EUR: "EUR", GBP: "GBP", CAD: "CAD",
+  AUD: "AUD", INR: "INR", BRL: "BRL", MXN: "MXN", JPY: "JPY",
+};
+
+let cachedRates: Record<string, number> | null = null;
+let ratesFetchedAt = 0;
+
+async function fetchUsdRates(): Promise<Record<string, number>> {
+  if (cachedRates && Date.now() - ratesFetchedAt < 3600_000) return cachedRates;
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/USD", {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return cachedRates ?? {};
+    const data = await res.json();
+    const rates: Record<string, number> = data.rates ?? {};
+    cachedRates = rates;
+    ratesFetchedAt = Date.now();
+    return rates;
+  } catch {
+    return cachedRates ?? {};
+  }
+}
+
+function toUsd(amount: number, currencyCode: string, rates: Record<string, number>): number {
+  if (!currencyCode || currencyCode === "USD") return amount;
+  const code = CURRENCY_MAP[currencyCode] ?? currencyCode;
+  const rate = rates[code];
+  if (rate && rate > 0) return amount / rate;
+  return amount;
+}
+
 export type SellerInfo = {
   account_id: string;
   company_name: string;
@@ -89,6 +123,7 @@ function computeMetrics(
   platform: "AD" | "GD",
   totalListings: number,
   listings: Record<string, unknown>[],
+  rates: Record<string, number>,
 ): PlatformMetrics {
   const sampleSize = listings.length;
 
@@ -112,15 +147,17 @@ function computeMetrics(
     totalBids += bids;
     if (bids > 0) listingsWithBids++;
 
-    const currentBid = safeNumber(listing.currentBid);
-    totalCurrentPrice += currentBid;
+    const rawBid = safeNumber(listing.currentBid);
+    const currency = typeof listing.currencyCode === "string" ? listing.currencyCode : "USD";
+    const currentBidUsd = toUsd(rawBid, currency, rates);
+    totalCurrentPrice += currentBidUsd;
 
     const accountId = listing.accountId != null ? String(listing.accountId) : null;
     if (accountId) {
       const existing = sellerMap.get(accountId);
       if (existing) {
         existing.listing_count += 1;
-        existing.total_current_bid += currentBid;
+        existing.total_current_bid += currentBidUsd;
         existing.total_bids += bids;
       } else {
         sellerMap.set(accountId, {
@@ -129,7 +166,7 @@ function computeMetrics(
           country: typeof listing.country === "string" ? listing.country : "",
           state: typeof listing.locationState === "string" ? listing.locationState : "",
           listing_count: 1,
-          total_current_bid: currentBid,
+          total_current_bid: currentBidUsd,
           total_bids: bids,
         });
       }
@@ -179,6 +216,7 @@ function computeMetrics(
 
 async function fetchPlatformMetrics(
   businessId: "AD" | "GD",
+  rates: Record<string, number>,
 ): Promise<PlatformMetrics> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
@@ -226,7 +264,7 @@ async function fetchPlatformMetrics(
       return emptyMetrics(businessId, `no listings array. keys: ${keys}`);
     }
 
-    return computeMetrics(businessId, totalListings, listings);
+    return computeMetrics(businessId, totalListings, listings, rates);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[marketplace-metrics] ${businessId} error: ${msg}`);
@@ -240,9 +278,10 @@ export async function scrapeMarketplaceMetrics(): Promise<{
   allsurplus: PlatformMetrics;
   govdeals: PlatformMetrics;
 }> {
+  const rates = await fetchUsdRates();
   const [allsurplus, govdeals] = await Promise.all([
-    fetchPlatformMetrics("AD"),
-    fetchPlatformMetrics("GD"),
+    fetchPlatformMetrics("AD", rates),
+    fetchPlatformMetrics("GD", rates),
   ]);
   return { allsurplus, govdeals };
 }
