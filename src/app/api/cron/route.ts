@@ -39,18 +39,27 @@ export async function GET(request: Request) {
     .insert({ date, timestamp, allsurplus, govdeals });
 
   // 2. Store marketplace metrics
-  let metricsDb = { success: false, error: "skipped" };
+  let metricsDb: Record<string, unknown> = { success: false, error: "skipped" };
   if (metricsResult) {
+    const { debug: adDebug, ...adData } = metricsResult.allsurplus;
+    const { debug: gdDebug, ...gdData } = metricsResult.govdeals;
     const rows = [
-      { date, timestamp, ...metricsResult.allsurplus },
-      { date, timestamp, ...metricsResult.govdeals },
+      { date, timestamp, ...adData },
+      { date, timestamp, ...gdData },
     ];
     const { error } = await supabase.from("marketplace_metrics").insert(rows);
-    metricsDb = error ? { success: false, error: error.message } : { success: true, error: "" };
+    metricsDb = {
+      success: !error,
+      error: error?.message ?? "",
+      adDebug,
+      gdDebug,
+      adSample: metricsResult.allsurplus.sample_size,
+      gdSample: metricsResult.govdeals.sample_size,
+    };
   }
 
   // 3. Store new contracts (upsert to avoid duplicates)
-  let contractsDb = { newContracts: 0, snapshot: false };
+  let contractsDb: Record<string, unknown> = { newContracts: 0, snapshot: false, contractsFetched: newContracts.length };
   if (newContracts.length > 0) {
     const contractRows = newContracts.map((c) => ({
       ...c,
