@@ -26,17 +26,16 @@ export async function GET(request: Request) {
   const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
   // Run all scrapes in parallel
-  const [listingResult, metricsResult, contractsResult] = await Promise.all([
+  const [listingResult, metricsResult, newContracts] = await Promise.all([
     scrapeListings(),
     scrapeMarketplaceMetrics().catch(() => null),
-    Promise.all([
-      fetchNewContracts(30).catch(() => []),
-      fetchContractSummary().catch(() => null),
-    ]),
+    fetchNewContracts(30).catch(() => [] as Awaited<ReturnType<typeof fetchNewContracts>>),
   ]);
 
   const { allsurplus, govdeals } = listingResult;
-  const [newContracts, contractSummary] = contractsResult;
+
+  // Build summary from already-fetched contracts (avoids redundant API calls)
+  const contractSummary = await fetchContractSummary(newContracts).catch(() => null);
 
   // 1. Store listing counts
   const { error: dbError } = await supabase

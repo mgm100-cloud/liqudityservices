@@ -34,7 +34,7 @@ function buildPayload(businessId: "AD" | "GD") {
     eventId: null,
     auctionTypeId: null,
     page: 1,
-    displayRows: 200,
+    displayRows: 50,
     sortField: "bestfit",
     sortOrder: "asc",
     requestType: "search",

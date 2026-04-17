@@ -210,10 +210,14 @@ export async function fetchNewContracts(
  * "Active" contracts = those whose end_date is in the future or null
  * (i.e. still open) within the last 365 days of data.
  */
-export async function fetchContractSummary(): Promise<ContractSummary> {
-  // Fetch a broad window for active-contract detection
+export async function fetchContractSummary(
+  recentContracts?: ContractAward[],
+): Promise<ContractSummary> {
   const allContracts = await fetchNewContracts(365);
-  const recentContracts = await fetchNewContracts(30);
+  const recent = recentContracts ?? allContracts.filter((c) => {
+    const cutoff = daysAgo(30);
+    return c.start_date >= cutoff;
+  });
 
   const today = formatDate(new Date());
 
@@ -226,12 +230,11 @@ export async function fetchContractSummary(): Promise<ContractSummary> {
     0,
   );
 
-  const newObligation = recentContracts.reduce(
+  const newObligation = recent.reduce(
     (sum, c) => sum + c.total_obligation,
     0,
   );
 
-  // Aggregate by awarding agency
   const agencyMap = new Map<string, { amount: number; count: number }>();
   for (const c of activeContracts) {
     const name = c.awarding_agency || "Unknown";
@@ -249,7 +252,7 @@ export async function fetchContractSummary(): Promise<ContractSummary> {
   return {
     total_active_contracts: activeContracts.length,
     total_obligated_amount: totalObligated,
-    new_contracts_last_30d: recentContracts.length,
+    new_contracts_last_30d: recent.length,
     new_obligation_last_30d: newObligation,
     top_agencies: topAgencies,
   };
