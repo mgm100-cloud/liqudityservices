@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   const [listingResult, metricsResult, newContracts] = await Promise.all([
     scrapeListings(),
     scrapeMarketplaceMetrics().catch(() => null),
-    fetchNewContracts(30).catch(() => [] as Awaited<ReturnType<typeof fetchNewContracts>>),
+    fetchNewContracts(365).catch(() => [] as Awaited<ReturnType<typeof fetchNewContracts>>),
   ]);
 
   const { allsurplus, govdeals } = listingResult;
