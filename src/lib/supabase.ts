@@ -57,6 +57,20 @@ export type ContractSnapshotRow = {
   created_at: string;
 };
 
+export type MarketplaceSellerRow = {
+  id: number;
+  date: string;
+  platform: "AD" | "GD";
+  account_id: string;
+  company_name: string;
+  country: string | null;
+  state: string | null;
+  listing_count: number | null;
+  total_current_bid: number | null;
+  total_bids: number | null;
+  created_at: string;
+};
+
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
 
+export type SellerInfo = {
+  account_id: string;
+  company_name: string;
+  country: string;
+  state: string;
+  listing_count: number;
+  total_current_bid: number;
+  total_bids: number;
+};
+
 export type PlatformMetrics = {
   platform: "AD" | "GD";
   total_listings: number;
@@ -13,6 +23,7 @@ export type PlatformMetrics = {
   avg_watch_count: number;
   top_categories: Record<string, number>;
   sample_size: number;
+  sellers: SellerInfo[];
   debug?: string;
 };
 
@@ -69,6 +80,7 @@ function emptyMetrics(platform: "AD" | "GD", debug: string): PlatformMetrics {
     avg_watch_count: 0,
     top_categories: {},
     sample_size: 0,
+    sellers: [],
     debug,
   };
 }
@@ -89,7 +101,7 @@ function computeMetrics(
   let listingsWithBids = 0;
   let listingsClosing24h = 0;
 
-  const sellerIds = new Set<string>();
+  const sellerMap = new Map<string, SellerInfo>();
   const categoryCounts: Record<string, number> = {};
 
   const now = Date.now();
@@ -100,10 +112,28 @@ function computeMetrics(
     totalBids += bids;
     if (bids > 0) listingsWithBids++;
 
-    totalCurrentPrice += safeNumber(listing.currentBid);
+    const currentBid = safeNumber(listing.currentBid);
+    totalCurrentPrice += currentBid;
 
-    const sellerId = listing.accountId;
-    if (sellerId != null) sellerIds.add(String(sellerId));
+    const accountId = listing.accountId != null ? String(listing.accountId) : null;
+    if (accountId) {
+      const existing = sellerMap.get(accountId);
+      if (existing) {
+        existing.listing_count += 1;
+        existing.total_current_bid += currentBid;
+        existing.total_bids += bids;
+      } else {
+        sellerMap.set(accountId, {
+          account_id: accountId,
+          company_name: typeof listing.companyName === "string" ? listing.companyName : "",
+          country: typeof listing.country === "string" ? listing.country : "",
+          state: typeof listing.locationState === "string" ? listing.locationState : "",
+          listing_count: 1,
+          total_current_bid: currentBid,
+          total_bids: bids,
+        });
+      }
+    }
 
     const categoryName = listing.categoryDescription;
     if (typeof categoryName === "string" && categoryName.length > 0) {
@@ -127,6 +157,8 @@ function computeMetrics(
     topCategories[name] = count;
   }
 
+  const sellers = Array.from(sellerMap.values()).sort((a, b) => b.listing_count - a.listing_count);
+
   return {
     platform,
     total_listings: totalListings,
@@ -135,12 +167,13 @@ function computeMetrics(
     total_current_price: Math.round(totalCurrentPrice * 100) / 100,
     listings_with_bids: listingsWithBids,
     bid_rate: Math.round((listingsWithBids / sampleSize) * 10000) / 10000,
-    unique_seller_count: sellerIds.size,
+    unique_seller_count: sellerMap.size,
     listings_closing_24h: listingsClosing24h,
     avg_watch_count: 0,
     top_categories: topCategories,
     sample_size: sampleSize,
-    debug: `ok, ${sampleSize} listings, ${totalBids} bids, ${sellerIds.size} sellers`,
+    sellers,
+    debug: `ok, ${sampleSize} listings, ${totalBids} bids, ${sellerMap.size} sellers`,
   };
 }
 

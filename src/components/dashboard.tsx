@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef, useState, useMemo } from "react";
-import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow } from "@/lib/supabase";
+import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow, MarketplaceSellerRow } from "@/lib/supabase";
 import { ListingsChart } from "./listings-chart";
 import { ListingsTable } from "./listings-table";
 import { EmailSnapshot } from "./email-snapshot";
 import { MarketplaceMetrics } from "./marketplace-metrics";
 import { FederalContracts } from "./federal-contracts";
+import { TopSellers } from "./top-sellers";
 
 const RANGES = ["All", "3Y", "1Y", "6M", "3M", "1M"] as const;
 type Range = (typeof RANGES)[number];
@@ -28,6 +29,8 @@ function cutoffDate(range: Range): string | null {
 export function Dashboard({
   listings,
   metricsAllsurplus,
+  sellersAllsurplus,
+  sellersGovdeals,
   metricsGovdeals,
   contracts,
   contractSnapshot,
@@ -37,6 +40,8 @@ export function Dashboard({
   metricsGovdeals: MarketplaceMetricsRow | null;
   contracts: FederalContractRow[];
   contractSnapshot: ContractSnapshotRow | null;
+  sellersAllsurplus: MarketplaceSellerRow[];
+  sellersGovdeals: MarketplaceSellerRow[];
 }) {
   const [range, setRange] = useState<Range>("All");
   const chartRef = useRef<HTMLDivElement>(null);
@@ -98,6 +103,11 @@ export function Dashboard({
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-4">Marketplace Metrics</h2>
         <MarketplaceMetrics allsurplus={metricsAllsurplus} govdeals={metricsGovdeals} />
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-4">Top Sellers</h2>
+        <TopSellers allsurplus={sellersAllsurplus} govdeals={sellersGovdeals} />
       </section>
 
       <section className="mb-8">

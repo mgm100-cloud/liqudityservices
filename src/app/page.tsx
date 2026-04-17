@@ -1,11 +1,11 @@
 import { supabase } from "@/lib/supabase";
-import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow } from "@/lib/supabase";
+import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow, MarketplaceSellerRow } from "@/lib/supabase";
 import { Dashboard } from "@/components/dashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [listingsRes, metricsRes, contractsRes, snapshotsRes] = await Promise.all([
+  const [listingsRes, metricsRes, contractsRes, snapshotsRes, sellersRes] = await Promise.all([
     supabase
       .from("listings")
       .select("*")
@@ -27,6 +27,12 @@ export default async function Home() {
       .select("*")
       .order("date", { ascending: false })
       .limit(1),
+    supabase
+      .from("marketplace_sellers")
+      .select("*")
+      .order("date", { ascending: false })
+      .order("listing_count", { ascending: false })
+      .limit(200),
   ]);
 
   const listings: ListingRow[] = listingsRes.data ?? [];
@@ -37,6 +43,12 @@ export default async function Home() {
 
   const contracts: FederalContractRow[] = contractsRes.data ?? [];
   const contractSnapshot: ContractSnapshotRow | null = snapshotsRes.data?.[0] ?? null;
+
+  const allSellers: MarketplaceSellerRow[] = sellersRes.data ?? [];
+  const latestSellerDate = allSellers[0]?.date;
+  const latestSellers = latestSellerDate ? allSellers.filter((s) => s.date === latestSellerDate) : [];
+  const sellersAD = latestSellers.filter((s) => s.platform === "AD");
+  const sellersGD = latestSellers.filter((s) => s.platform === "GD");
 
   return (
     <main className="px-6 py-10">
@@ -50,6 +62,8 @@ export default async function Home() {
         metricsGovdeals={latestGovdeals}
         contracts={contracts}
         contractSnapshot={contractSnapshot}
+        sellersAllsurplus={sellersAD}
+        sellersGovdeals={sellersGD}
       />
     </main>
   );

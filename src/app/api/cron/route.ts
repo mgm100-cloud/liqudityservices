@@ -42,16 +42,28 @@ export async function GET(request: Request) {
     .from("listings")
     .insert({ date, timestamp, allsurplus, govdeals });
 
-  // 2. Store marketplace metrics
+  // 2. Store marketplace metrics + sellers
   let metricsDb: Record<string, unknown> = { success: false, error: "skipped" };
   if (metricsResult) {
-    const { debug: adDebug, ...adData } = metricsResult.allsurplus;
-    const { debug: gdDebug, ...gdData } = metricsResult.govdeals;
+    const { debug: adDebug, sellers: adSellers, ...adData } = metricsResult.allsurplus;
+    const { debug: gdDebug, sellers: gdSellers, ...gdData } = metricsResult.govdeals;
     const rows = [
       { date, timestamp, ...adData },
       { date, timestamp, ...gdData },
     ];
     const { error } = await supabase.from("marketplace_metrics").insert(rows);
+
+    // Store seller snapshots
+    const sellerRows = [
+      ...adSellers.map((s) => ({ date, platform: "AD" as const, ...s })),
+      ...gdSellers.map((s) => ({ date, platform: "GD" as const, ...s })),
+    ];
+    let sellersStored = 0;
+    if (sellerRows.length > 0) {
+      const { error: sellerErr } = await supabase.from("marketplace_sellers").insert(sellerRows);
+      sellersStored = sellerErr ? 0 : sellerRows.length;
+    }
+
     metricsDb = {
       success: !error,
       error: error?.message ?? "",
@@ -59,6 +71,7 @@ export async function GET(request: Request) {
       gdDebug,
       adSample: metricsResult.allsurplus.sample_size,
       gdSample: metricsResult.govdeals.sample_size,
+      sellersStored,
     };
   }
 
