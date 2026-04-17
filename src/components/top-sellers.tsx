@@ -10,17 +10,13 @@ function fmtDollar(n: number | null | undefined) {
 }
 
 function listingUrl(accountId: string, assetId: string, subBiz: string): string {
-  if (subBiz === "GD") {
-    return `https://www.govdeals.com/index.cfm?fa=Main.Item&itemid=${accountId}-${assetId}`;
-  }
-  return `https://www.allsurplus.com/asset/${accountId}-${assetId}`;
+  const domain = subBiz === "GD" ? "www.govdeals.com" : "www.allsurplus.com";
+  return `https://${domain}/asset/${assetId}/${accountId}`;
 }
 
 function sellerSearchUrl(accountId: string, platform: "AD" | "GD"): string {
-  if (platform === "GD") {
-    return `https://www.govdeals.com/index.cfm?fa=Main.AdvSearchResultsNew&searchPg=Category&selession=${accountId}`;
-  }
-  return `https://www.allsurplus.com/search?accountId=${accountId}`;
+  const domain = platform === "GD" ? "www.govdeals.com" : "www.allsurplus.com";
+  return `https://${domain}/search?accountId=${accountId}`;
 }
 
 function countryFlag(code: string | null) {
