@@ -54,9 +54,13 @@ export async function GET(request: Request) {
     const { error } = await supabase.from("marketplace_metrics").insert(rows);
 
     // Store seller snapshots
+    const toRow = (s: typeof adSellers[number], plat: "AD" | "GD") => {
+      const { top_bid_amount: _, ...rest } = s;
+      return { date, platform: plat, ...rest };
+    };
     const sellerRows = [
-      ...adSellers.map((s) => ({ date, platform: "AD" as const, ...s })),
-      ...gdSellers.map((s) => ({ date, platform: "GD" as const, ...s })),
+      ...adSellers.map((s) => toRow(s, "AD")),
+      ...gdSellers.map((s) => toRow(s, "GD")),
     ];
     let sellersStored = 0;
     if (sellerRows.length > 0) {

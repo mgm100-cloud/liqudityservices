@@ -42,6 +42,9 @@ export type SellerInfo = {
   listing_count: number;
   total_current_bid: number;
   total_bids: number;
+  top_bid_asset_id: string | null;
+  top_bid_amount: number;
+  sub_business_id: string;
 };
 
 export type PlatformMetrics = {
@@ -153,12 +156,19 @@ function computeMetrics(
     totalCurrentPrice += currentBidUsd;
 
     const accountId = listing.accountId != null ? String(listing.accountId) : null;
+    const assetId = listing.assetId != null ? String(listing.assetId) : null;
+    const subBiz = typeof listing.businessId === "string" ? listing.businessId : "";
     if (accountId) {
       const existing = sellerMap.get(accountId);
       if (existing) {
         existing.listing_count += 1;
         existing.total_current_bid += currentBidUsd;
         existing.total_bids += bids;
+        if (bids > existing.top_bid_amount && assetId) {
+          existing.top_bid_asset_id = assetId;
+          existing.top_bid_amount = bids;
+          existing.sub_business_id = subBiz;
+        }
       } else {
         sellerMap.set(accountId, {
           account_id: accountId,
@@ -168,6 +178,9 @@ function computeMetrics(
           listing_count: 1,
           total_current_bid: currentBidUsd,
           total_bids: bids,
+          top_bid_asset_id: bids > 0 ? assetId : null,
+          top_bid_amount: bids,
+          sub_business_id: subBiz,
         });
       }
     }

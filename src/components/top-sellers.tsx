@@ -9,6 +9,20 @@ function fmtDollar(n: number | null | undefined) {
   return "$" + n.toFixed(0);
 }
 
+function listingUrl(accountId: string, assetId: string, subBiz: string): string {
+  if (subBiz === "GD") {
+    return `https://www.govdeals.com/index.cfm?fa=Main.Item&itemid=${accountId}-${assetId}`;
+  }
+  return `https://www.allsurplus.com/asset/${accountId}-${assetId}`;
+}
+
+function sellerSearchUrl(accountId: string, platform: "AD" | "GD"): string {
+  if (platform === "GD") {
+    return `https://www.govdeals.com/index.cfm?fa=Main.AdvSearchResultsNew&searchPg=Category&selession=${accountId}`;
+  }
+  return `https://www.allsurplus.com/search?accountId=${accountId}`;
+}
+
 function countryFlag(code: string | null) {
   if (!code || code.length < 2) return "";
   const map: Record<string, string> = {
@@ -21,7 +35,7 @@ function countryFlag(code: string | null) {
   ) + " ";
 }
 
-function SellerTable({ title, color, sellers }: { title: string; color: string; sellers: MarketplaceSellerRow[] }) {
+function SellerTable({ title, color, sellers, platform }: { title: string; color: string; sellers: MarketplaceSellerRow[]; platform: "AD" | "GD" }) {
   if (sellers.length === 0) return null;
 
   const countryBreakdown: Record<string, number> = {};
@@ -61,8 +75,30 @@ function SellerTable({ title, color, sellers }: { title: string; color: string; 
                 <td className="py-1 pr-4 text-gray-500 whitespace-nowrap">
                   {[s.state, s.country].filter(Boolean).join(", ")}
                 </td>
-                <td className="py-1 pr-4 text-right tabular-nums">{s.listing_count ?? 0}</td>
-                <td className="py-1 pr-4 text-right tabular-nums">{s.total_bids ?? 0}</td>
+                <td className="py-1 pr-4 text-right tabular-nums">
+                  <a
+                    href={sellerSearchUrl(s.account_id, platform)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    {s.listing_count ?? 0}
+                  </a>
+                </td>
+                <td className="py-1 pr-4 text-right tabular-nums">
+                  {(s.total_bids ?? 0) > 0 && s.top_bid_asset_id ? (
+                    <a
+                      href={listingUrl(s.account_id, s.top_bid_asset_id, s.sub_business_id ?? platform)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {s.total_bids}
+                    </a>
+                  ) : (
+                    s.total_bids ?? 0
+                  )}
+                </td>
                 <td className="py-1 text-right tabular-nums">{fmtDollar(s.total_current_bid)}</td>
               </tr>
             ))}
@@ -86,8 +122,8 @@ export function TopSellers({
 
   return (
     <div className="space-y-6">
-      <SellerTable title="AllSurplus" color="text-blue-600" sellers={allsurplus} />
-      <SellerTable title="GovDeals" color="text-green-600" sellers={govdeals} />
+      <SellerTable title="AllSurplus" color="text-blue-600" sellers={allsurplus} platform="AD" />
+      <SellerTable title="GovDeals" color="text-green-600" sellers={govdeals} platform="GD" />
     </div>
   );
 }

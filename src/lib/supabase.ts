@@ -68,6 +68,8 @@ export type MarketplaceSellerRow = {
   listing_count: number | null;
   total_current_bid: number | null;
   total_bids: number | null;
+  top_bid_asset_id: string | null;
+  sub_business_id: string | null;
   created_at: string;
 };
 
