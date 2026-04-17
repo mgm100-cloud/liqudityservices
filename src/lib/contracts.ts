@@ -10,8 +10,6 @@ const NAME_VARIANTS = [
   "Bid4Assets",
 ];
 
-const NAICS_CODES = ["423930", "453310", "561990"];
-
 const AWARD_FIELDS = [
   "Award ID",
   "Recipient Name",
@@ -27,9 +25,11 @@ const AWARD_FIELDS = [
   "NAICS Code",
 ] as const;
 
-// Contract award type codes: A = BPA Call, B = Purchase Order,
-// C = Delivery Order, D = Definitive Contract
-const AWARD_TYPE_CODES = ["A", "B", "C", "D"];
+const CONTRACT_CODES = ["A", "B", "C", "D"];
+const IDV_CODES = ["IDV_A", "IDV_B", "IDV_B_A", "IDV_B_B", "IDV_B_C", "IDV_C", "IDV_D", "IDV_E"];
+
+// USAspending earliest available date
+const EARLIEST_DATE = "2007-10-01";
 
 export type ContractAward = {
   award_id: string;
@@ -53,10 +53,6 @@ export type ContractSummary = {
   new_obligation_last_30d: number;
   top_agencies: { name: string; amount: number; count: number }[];
 };
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                           */
-/* ------------------------------------------------------------------ */
 
 function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -88,10 +84,11 @@ function mapRow(row: Record<string, any>): ContractAward {
   };
 }
 
-async function searchByRecipient(
+async function searchAwards(
   recipientName: string,
   startDate: string,
   endDate: string,
+  awardTypeCodes: string[],
 ): Promise<ContractAward[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -104,46 +101,7 @@ async function searchByRecipient(
         filters: {
           recipient_search_text: [recipientName],
           time_period: [{ start_date: startDate, end_date: endDate }],
-          award_type_codes: AWARD_TYPE_CODES,
-        },
-        fields: [...AWARD_FIELDS],
-        page: 1,
-        limit: 100,
-        sort: "Start Date",
-        order: "desc",
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) return [];
-
-    const data = (await res.json()) as { results?: Record<string, unknown>[] };
-    return (data.results ?? []).map(mapRow);
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function searchByNaics(
-  naicsCode: string,
-  startDate: string,
-  endDate: string,
-): Promise<ContractAward[]> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(SEARCH_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filters: {
-          naics_codes: [{ naics_code: naicsCode }],
-          recipient_search_text: NAME_VARIANTS,
-          time_period: [{ start_date: startDate, end_date: endDate }],
-          award_type_codes: AWARD_TYPE_CODES,
+          award_type_codes: awardTypeCodes,
         },
         fields: [...AWARD_FIELDS],
         page: 1,
@@ -175,55 +133,35 @@ function dedup(awards: ContractAward[]): ContractAward[] {
   return Array.from(seen.values());
 }
 
-/* ------------------------------------------------------------------ */
-/*  Public API                                                        */
-/* ------------------------------------------------------------------ */
-
-/**
- * Fetch recent contract awards for Liquidity Services and related entities.
- * Searches multiple name variants and NAICS codes, then deduplicates.
- */
 export async function fetchNewContracts(
-  sinceDaysAgo: number = 30,
+  sinceDaysAgo: number = 365,
 ): Promise<ContractAward[]> {
-  const startDate = daysAgo(sinceDaysAgo);
+  const startDate = sinceDaysAgo > 6000 ? EARLIEST_DATE : daysAgo(sinceDaysAgo);
   const endDate = formatDate(new Date());
 
-  // Search by each name variant in parallel
-  const nameSearches = NAME_VARIANTS.map((name) =>
-    searchByRecipient(name, startDate, endDate),
-  );
+  // Search each name variant for both contracts and IDVs (separate groups required by API)
+  const searches = NAME_VARIANTS.flatMap((name) => [
+    searchAwards(name, startDate, endDate, CONTRACT_CODES),
+    searchAwards(name, startDate, endDate, IDV_CODES),
+  ]);
 
-  // Also search by NAICS codes relevant to LQDT
-  const naicsSearches = NAICS_CODES.map((code) =>
-    searchByNaics(code, startDate, endDate),
-  );
-
-  const results = await Promise.all([...nameSearches, ...naicsSearches]);
-  const allAwards = results.flat();
-
-  return dedup(allAwards);
+  const results = await Promise.all(searches);
+  return dedup(results.flat());
 }
 
-/**
- * Build aggregate summary stats from contract data.
- * "Active" contracts = those whose end_date is in the future or null
- * (i.e. still open) within the last 365 days of data.
- */
 export async function fetchContractSummary(
   recentContracts?: ContractAward[],
 ): Promise<ContractSummary> {
-  const allContracts = await fetchNewContracts(365);
-  const recent = recentContracts ?? allContracts.filter((c) => {
-    const cutoff = daysAgo(30);
-    return c.start_date >= cutoff;
-  });
+  const allContracts = recentContracts ?? await fetchNewContracts(99999);
 
   const today = formatDate(new Date());
+  const cutoff30 = daysAgo(30);
 
   const activeContracts = allContracts.filter(
     (c) => c.end_date === null || c.end_date >= today,
   );
+
+  const recent = allContracts.filter((c) => c.start_date >= cutoff30);
 
   const totalObligated = activeContracts.reduce(
     (sum, c) => sum + c.total_obligation,
