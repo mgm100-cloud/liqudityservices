@@ -6,6 +6,7 @@ import { ListingsChart } from "./listings-chart";
 import { ListingsTable } from "./listings-table";
 import { EmailSnapshot } from "./email-snapshot";
 import { MarketplaceMetrics } from "./marketplace-metrics";
+import { RevenueForecast } from "./revenue-forecast";
 import { FederalContracts } from "./federal-contracts";
 import { TopSellers } from "./top-sellers";
 import { SamOpportunities } from "./sam-opportunities";
@@ -104,6 +105,11 @@ export function Dashboard({
         <div ref={chartRef}>
           <ListingsChart data={filtered} allData={listings} />
         </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-4">Quarterly Revenue Forecast</h2>
+        <RevenueForecast />
       </section>
 
       <section className="mb-8">

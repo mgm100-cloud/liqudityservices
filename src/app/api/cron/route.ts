@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { scrapeListings } from "@/lib/scraper";
 import { scrapeMarketplaceMetrics } from "@/lib/marketplace-metrics";
+import { ingestAuctions } from "@/lib/auctions";
 import { fetchNewContracts, fetchContractSummary } from "@/lib/contracts";
 import { fetchSamOpportunities } from "@/lib/sam-opportunities";
 import { fetchAllStateContracts } from "@/lib/state-contracts";
@@ -28,9 +29,10 @@ export async function GET(request: Request) {
   const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
   // Run all scrapes in parallel
-  const [listingResult, metricsResult, newContracts, samResult, stateResult] = await Promise.all([
+  const [listingResult, metricsResult, auctionsResult, newContracts, samResult, stateResult] = await Promise.all([
     scrapeListings(),
     scrapeMarketplaceMetrics().catch(() => null),
+    ingestAuctions().catch((e) => ({ error: e instanceof Error ? e.message : String(e) })),
     fetchNewContracts(99999).catch(() => [] as Awaited<ReturnType<typeof fetchNewContracts>>),
     fetchSamOpportunities(90).catch((e) => ({ opportunities: [], debug: `error: ${e instanceof Error ? e.message : String(e)}` })),
     fetchAllStateContracts().catch((e) => ({ contracts: [], perState: { _error: { count: 0, error: e instanceof Error ? e.message : String(e) } } })),
@@ -153,6 +155,7 @@ export async function GET(request: Request) {
     govdeals,
     db: dbError ? { error: dbError.message } : { success: true },
     metrics: metricsDb,
+    auctions: auctionsResult,
     contracts: contractsDb,
     sam: samDb,
     stateContracts: stateDb,
