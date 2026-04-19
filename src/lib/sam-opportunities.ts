@@ -1,5 +1,4 @@
-const SAM_BASE = "https://api.sam.gov/prod/opportunities/v2/search";
-const LQDT_UEI = "WJV4A6AM6ZN6";
+const SAM_BASE = "https://api.sam.gov/opportunities/v2/search";
 
 export type SamOpportunity = {
   notice_id: string;
@@ -83,7 +82,8 @@ async function samFetch(params: Record<string, string>): Promise<SamOpportunity[
   try {
     const res = await fetch(url.toString(), { signal: AbortSignal.timeout(20000) });
     if (!res.ok) {
-      console.error(`[sam] HTTP ${res.status} for ${Object.entries(params).map(([k]) => k).join(",")}`);
+      const body = await res.text().catch(() => "");
+      console.error(`[sam] HTTP ${res.status} for ${Object.entries(params).map(([k]) => k).join(",")}: ${body.slice(0, 300)}`);
       return [];
     }
     const data = await res.json();
@@ -110,34 +110,15 @@ export async function fetchSamOpportunities(daysBack = 90): Promise<{
   const postedFrom = fmtDate(from);
   const postedTo = fmtDate(now);
 
-  // Three parallel searches: keywords, NAICS codes, LQDT awards
+  // Parallel searches: title keywords, NAICS codes, LQDT-specific
   const searches = [
-    samFetch({
-      postedFrom,
-      postedTo,
-      q: 'surplus OR disposal OR liquidation OR "personal property" OR auction',
-      ptype: "o,p,r,k",
-      limit: "500",
-    }),
-    samFetch({
-      postedFrom,
-      postedTo,
-      ncode: "561499",
-      limit: "500",
-    }),
-    samFetch({
-      postedFrom,
-      postedTo,
-      ncode: "423930",
-      limit: "500",
-    }),
-    samFetch({
-      postedFrom,
-      postedTo,
-      ptype: "a",
-      ueiSAM: LQDT_UEI,
-      limit: "200",
-    }),
+    samFetch({ postedFrom, postedTo, title: "surplus", ptype: "o,p,r,k", limit: "500" }),
+    samFetch({ postedFrom, postedTo, title: "liquidation", ptype: "o,p,r,k", limit: "500" }),
+    samFetch({ postedFrom, postedTo, title: "disposal", ptype: "o,p,r,k", limit: "500" }),
+    samFetch({ postedFrom, postedTo, title: "auction", ptype: "o,p,r,k", limit: "500" }),
+    samFetch({ postedFrom, postedTo, ncode: "561499", limit: "500" }),
+    samFetch({ postedFrom, postedTo, ncode: "423930", limit: "500" }),
+    samFetch({ postedFrom, postedTo, title: "liquidity services", limit: "200" }),
   ];
 
   const results = await Promise.all(searches);
@@ -151,9 +132,9 @@ export async function fetchSamOpportunities(daysBack = 90): Promise<{
     }
   }
 
-  const counts = results.map((r) => r.length).join("/");
+  const c = results.map((r) => r.length);
   return {
     opportunities,
-    debug: `keywords:${counts.split("/")[0]} naics561499:${counts.split("/")[1]} naics423930:${counts.split("/")[2]} lqdt_awards:${counts.split("/")[3]} total_unique:${opportunities.length}`,
+    debug: `surplus:${c[0]} liquidation:${c[1]} disposal:${c[2]} auction:${c[3]} naics561499:${c[4]} naics423930:${c[5]} lqdt:${c[6]} total_unique:${opportunities.length}`,
   };
 }
