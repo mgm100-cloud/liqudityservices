@@ -41,10 +41,10 @@ export async function GET(request: Request) {
   // Build summary from already-fetched contracts (avoids redundant API calls)
   const contractSummary = await fetchContractSummary(newContracts).catch(() => null);
 
-  // 1. Store listing counts
+  // 1. Store listing counts (one row per date; later runs overwrite)
   const { error: dbError } = await supabase
     .from("listings")
-    .insert({ date, timestamp, allsurplus, govdeals });
+    .upsert({ date, timestamp, allsurplus, govdeals }, { onConflict: "date" });
 
   // 2. Store marketplace metrics + sellers
   let metricsDb: Record<string, unknown> = { success: false, error: "skipped" };
