@@ -43,6 +43,11 @@ const SAM_ENDPOINTS = [
   "https://api.sam.gov/prod/opportunities/v2/search",
 ];
 
+// SAM.gov accepts the key either as a query param (opportunities API docs) or
+// as an X-Api-Key header (entity/extracts API docs). Try both.
+type AuthMode = "query" | "header";
+const AUTH_MODES: AuthMode[] = ["query", "header"];
+
 function fmtDate(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -81,61 +86,75 @@ function buildQs(params: Record<string, string>): string {
     .join("&");
 }
 
-function maskKey(url: string): string {
-  return url.replace(/api_key=[^&]+/, "api_key=***");
-}
+// Common browser headers — some SAM.gov gateways 404 requests without a UA.
+const COMMON_HEADERS = {
+  Accept: "application/json",
+  "User-Agent": "LQDT-Tracker/1.0 (+https://github.com/mgm100-cloud/liqudityservices)",
+};
 
-// Try each endpoint until one returns non-404. Cache which one works.
-let workingEndpoint: string | null = null;
+type WorkingConfig = { endpoint: string; authMode: AuthMode };
+let workingConfig: WorkingConfig | null = null;
+
+async function tryOne(
+  endpoint: string,
+  authMode: AuthMode,
+  apiKey: string,
+  params: Record<string, string>,
+): Promise<{ ok: true; data: SamOpportunity[] } | { ok: false; status: number; body: string } | { ok: false; status: -1; body: string }> {
+  const qsParams = authMode === "query" ? { api_key: apiKey, ...params } : params;
+  const url = `${endpoint}?${buildQs(qsParams)}`;
+  const headers: Record<string, string> = { ...COMMON_HEADERS };
+  if (authMode === "header") headers["X-Api-Key"] = apiKey;
+
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, status: res.status, body };
+    }
+    const data = await res.json();
+    const raw: SamRaw[] = Array.isArray(data?.opportunitiesData) ? data.opportunitiesData : [];
+    const mapped: SamOpportunity[] = [];
+    for (const r of raw) {
+      const m = mapOpportunity(r);
+      if (m) mapped.push(m);
+    }
+    return { ok: true, data: mapped };
+  } catch (err) {
+    return { ok: false, status: -1, body: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 async function samFetch(
   apiKey: string,
   params: Record<string, string>,
 ): Promise<SamOpportunity[]> {
-  const qs = buildQs({ api_key: apiKey, ...params });
-  const endpoints = workingEndpoint ? [workingEndpoint] : SAM_ENDPOINTS;
+  // Once we've found a working config, stick to it.
+  if (workingConfig) {
+    const r = await tryOne(workingConfig.endpoint, workingConfig.authMode, apiKey, params);
+    if (r.ok) return r.data;
+    console.error(`[sam] HTTP ${r.status} via cached config (${workingConfig.authMode} auth): ${r.body.slice(0, 200)}`);
+    return [];
+  }
 
-  for (const base of endpoints) {
-    const url = `${base}?${qs}`;
-    try {
-      const res = await fetch(url, {
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(20_000),
-      });
-
-      if (res.status === 404) {
-        const body = await res.text().catch(() => "");
-        console.warn(`[sam] 404 from ${maskKey(url).slice(0, 80)}… body: ${body.slice(0, 200) || "(empty)"}`);
-        continue;
+  // Probe all combinations until one succeeds. Log each attempt.
+  for (const endpoint of SAM_ENDPOINTS) {
+    for (const authMode of AUTH_MODES) {
+      const r = await tryOne(endpoint, authMode, apiKey, params);
+      if (r.ok) {
+        workingConfig = { endpoint, authMode };
+        console.log(`[sam] found working config: endpoint=${endpoint} auth=${authMode}`);
+        return r.data;
       }
-
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        console.error(`[sam] HTTP ${res.status} ${maskKey(url).slice(0, 80)}… body: ${body.slice(0, 300)}`);
-        return [];
-      }
-
-      // Success — remember this endpoint for subsequent calls.
-      if (!workingEndpoint) {
-        workingEndpoint = base;
-        console.log(`[sam] using endpoint: ${base}`);
-      }
-
-      const data = await res.json();
-      const raw: SamRaw[] = Array.isArray(data?.opportunitiesData) ? data.opportunitiesData : [];
-      const mapped: SamOpportunity[] = [];
-      for (const r of raw) {
-        const m = mapOpportunity(r);
-        if (m) mapped.push(m);
-      }
-      return mapped;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[sam] fetch error for ${maskKey(url).slice(0, 80)}: ${msg}`);
+      const label = `${endpoint.replace("https://api.sam.gov", "")} auth=${authMode}`;
+      console.warn(`[sam] ${label} → HTTP ${r.status}: ${r.body.slice(0, 150) || "(empty)"}`);
     }
   }
 
-  console.error("[sam] all endpoints returned 404 — check that SAM_API_KEY is a valid Opportunities API key");
+  console.error(
+    "[sam] all 4 URL×auth combinations failed. Likely cause: the SAM_API_KEY is not authorized for the Opportunities API. " +
+      "Generate a new key at sam.gov → Profile → Account Details → API Key, and ensure your account has opportunities access.",
+  );
   return [];
 }
 
@@ -156,14 +175,12 @@ export async function fetchSamOpportunities(daysBack = 90): Promise<{
   const postedFrom = fmtDate(from);
   const postedTo = fmtDate(now);
 
-  // First, run a minimal probe to find the working endpoint and verify the key.
-  const probe = await samFetch(apiKey, { postedFrom, postedTo, limit: "1" });
-  const probeOk = probe.length >= 0 && workingEndpoint != null;
-
-  if (!probeOk) {
+  // First, run a minimal probe to find the working endpoint/auth combo.
+  await samFetch(apiKey, { postedFrom, postedTo, limit: "1" });
+  if (!workingConfig) {
     return {
       opportunities: [],
-      debug: "probe failed — all endpoints returned 404 (invalid key or endpoint down)",
+      debug: "probe failed — all endpoint/auth combos returned non-OK (invalid key or endpoint down)",
     };
   }
 
@@ -189,6 +206,6 @@ export async function fetchSamOpportunities(daysBack = 90): Promise<{
   const c = searches.map((r) => r.length);
   return {
     opportunities,
-    debug: `endpoint:${workingEndpoint} surplus:${c[0]} liquidation:${c[1]} disposal:${c[2]} naics561499:${c[3]} naics423930:${c[4]} unique:${opportunities.length}`,
+    debug: `endpoint:${workingConfig?.endpoint} auth:${workingConfig?.authMode} surplus:${c[0]} liquidation:${c[1]} disposal:${c[2]} naics561499:${c[3]} naics423930:${c[4]} unique:${opportunities.length}`,
   };
 }
