@@ -5,7 +5,7 @@ export type SocrataConfig = {
   appToken?: string;
 };
 
-const SOCRATA_TIMEOUT = 20_000;
+const SOCRATA_TIMEOUT = 30_000;
 
 /**
  * Fetch rows from a Socrata dataset matching any of the vendor patterns.
