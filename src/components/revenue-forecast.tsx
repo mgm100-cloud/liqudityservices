@@ -1,6 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
+
+type DailyPoint = {
+  date: string;
+  realized_gmv_usd: number;
+  projected_gmv_usd: number;
+  realized_revenue_usd: number;
+  projected_revenue_usd: number;
+};
 
 type PlatformForecast = {
   platform: "AD" | "GD";
@@ -24,6 +43,7 @@ type Forecast = {
   quarter_end: string;
   take_rate: number;
   platforms: PlatformForecast[];
+  daily: DailyPoint[];
   projected_total_gmv_usd: number;
   projected_total_revenue_usd: number;
 };
@@ -73,8 +93,42 @@ function PlatformBlock({ label, color, p }: { label: string; color: string; p: P
 
 type FetchState = { forecast: Forecast | null; error: string | null; done: boolean };
 
+type ChartMetric = "gmv" | "revenue";
+
+function DailyForecastChart({ daily, metric, todayKey }: { daily: DailyPoint[]; metric: ChartMetric; todayKey: string }) {
+  const data = daily.map((d) => ({
+    date: d.date.slice(5),
+    Realized: metric === "gmv" ? d.realized_gmv_usd : d.realized_revenue_usd,
+    Projected: metric === "gmv" ? d.projected_gmv_usd : d.projected_revenue_usd,
+  }));
+  const hasAny = data.some((d) => d.Realized > 0 || d.Projected > 0);
+  if (!hasAny) {
+    return <p className="text-gray-500 text-sm py-8 text-center">No daily data yet — auctions table fills after the next cron run.</p>;
+  }
+  const todayLabel = todayKey.slice(5);
+
+  return (
+    <ResponsiveContainer width="100%" height={340}>
+      <BarChart data={data} margin={{ top: 10, right: 16, bottom: 5, left: 20 }}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+        <YAxis
+          tickFormatter={(v: number) => (v >= 1_000_000 ? (v / 1_000_000).toFixed(1) + "M" : (v / 1000).toFixed(0) + "k")}
+          tick={{ fontSize: 11 }}
+        />
+        <Tooltip formatter={(v) => (typeof v === "number" ? "$" + v.toLocaleString() : v)} />
+        <Legend />
+        <ReferenceLine x={todayLabel} stroke="#9ca3af" strokeDasharray="4 2" label={{ value: "today", position: "top", fontSize: 10, fill: "#6b7280" }} />
+        <Bar dataKey="Realized" stackId="a" fill="#2563eb" />
+        <Bar dataKey="Projected" stackId="a" fill="#93c5fd" />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function RevenueForecast() {
   const [takeRate, setTakeRate] = useState(0.2);
+  const [chartMetric, setChartMetric] = useState<ChartMetric>("gmv");
   const [state, setState] = useState<FetchState>({ forecast: null, error: null, done: false });
 
   useEffect(() => {
@@ -124,6 +178,32 @@ export function RevenueForecast() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Card label={`Projected ${forecast.quarter} GMV`} value={fmtDollar(forecast.projected_total_gmv_usd)} />
         <Card label={`Projected ${forecast.quarter} Revenue`} value={fmtDollar(forecast.projected_total_revenue_usd)} strong />
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700">Daily {chartMetric === "gmv" ? "GMV" : "Revenue"} — {forecast.quarter}</h3>
+          <div className="flex gap-1">
+            {(["gmv", "revenue"] as ChartMetric[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setChartMetric(m)}
+                className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                  chartMetric === m
+                    ? "bg-gray-900 text-white border-gray-900"
+                    : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
+                }`}
+              >
+                {m === "gmv" ? "GMV" : "Revenue"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <DailyForecastChart
+          daily={forecast.daily}
+          metric={chartMetric}
+          todayKey={new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" })}
+        />
       </div>
 
       {ad && <PlatformBlock label="AllSurplus" color="text-blue-600" p={ad} />}

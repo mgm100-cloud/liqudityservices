@@ -272,6 +272,13 @@ export type RevenueForecast = {
     projected_total_gmv_usd: number;
     projected_total_revenue_usd: number;
   }[];
+  daily: {
+    date: string;
+    realized_gmv_usd: number;
+    projected_gmv_usd: number;
+    realized_revenue_usd: number;
+    projected_revenue_usd: number;
+  }[];
   projected_total_gmv_usd: number;
   projected_total_revenue_usd: number;
 };
@@ -284,29 +291,55 @@ function quarterBounds(d: Date): { start: Date; end: Date; label: string } {
   return { start, end, label: `${y}Q${q + 1}` };
 }
 
+// Convert a UTC ISO timestamp to a YYYY-MM-DD date in America/New_York.
+// Matches the `auction_daily_stats` view's bucketing.
+function etDateKey(iso: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso));
+  const y = parts.find((p) => p.type === "year")?.value ?? "";
+  const m = parts.find((p) => p.type === "month")?.value ?? "";
+  const d = parts.find((p) => p.type === "day")?.value ?? "";
+  return `${y}-${m}-${d}`;
+}
+
+function enumerateQuarterDays(start: Date, end: Date): string[] {
+  const days: string[] = [];
+  const cursor = new Date(start);
+  while (cursor < end) {
+    days.push(etDateKey(cursor.toISOString()));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+}
+
 export async function computeRevenueForecast(takeRate = 0.2): Promise<RevenueForecast> {
   const now = new Date();
+  const nowIso = now.toISOString();
   const { start, end, label } = quarterBounds(now);
   const startIso = start.toISOString();
   const endIso = end.toISOString();
 
   const platforms: ("AD" | "GD")[] = ["AD", "GD"];
-  const rows = await Promise.all(
+  const perPlatform = await Promise.all(
     platforms.map(async (platform) => {
       const [closedRes, openRes] = await Promise.all([
         supabase
           .from("auctions")
-          .select("status, final_price_usd")
+          .select("status, final_price_usd, close_time_utc")
           .eq("platform", platform)
           .gte("close_time_utc", startIso)
           .lt("close_time_utc", endIso)
           .in("status", ["closed_sold", "closed_nosale"]),
         supabase
           .from("auctions")
-          .select("current_bid_usd")
+          .select("current_bid_usd, close_time_utc")
           .eq("platform", platform)
           .eq("status", "open")
-          .gte("close_time_utc", now.toISOString())
+          .gte("close_time_utc", nowIso)
           .lt("close_time_utc", endIso),
       ]);
 
@@ -318,33 +351,77 @@ export async function computeRevenueForecast(takeRate = 0.2): Promise<RevenueFor
       const avgHammer = sold.length > 0 ? realizedGmv / sold.length : 0;
       const openBid = open.reduce((s, r) => s + (r.current_bid_usd ?? 0), 0);
 
-      // Forecast: each still-open auction closes with probability = trailing close rate,
-      // and its hammer equals max(current_bid, trailing avg hammer) when sold.
       const projectedOpenGmv = open.reduce((s, r) => {
         const cur = r.current_bid_usd ?? 0;
         const hammer = Math.max(cur, avgHammer);
         return s + closeRate * hammer;
       }, 0);
 
-      const totalGmv = realizedGmv + projectedOpenGmv;
-
       return {
         platform,
-        realized_gmv_usd: Math.round(realizedGmv),
-        realized_revenue_usd: Math.round(realizedGmv * takeRate),
-        auctions_closed: closed.length,
-        auctions_sold: sold.length,
-        close_rate: Math.round(closeRate * 10000) / 10000,
-        avg_hammer_usd: Math.round(avgHammer),
-        scheduled_open_auctions: open.length,
-        scheduled_open_bid_usd: Math.round(openBid),
-        projected_remaining_gmv_usd: Math.round(projectedOpenGmv),
-        projected_remaining_revenue_usd: Math.round(projectedOpenGmv * takeRate),
-        projected_total_gmv_usd: Math.round(totalGmv),
-        projected_total_revenue_usd: Math.round(totalGmv * takeRate),
+        closed,
+        open,
+        sold,
+        realizedGmv,
+        closeRate,
+        avgHammer,
+        openBid,
+        projectedOpenGmv,
       };
     }),
   );
+
+  // Aggregate per-day totals across platforms.
+  const dailyMap = new Map<string, { realized: number; projected: number }>();
+  for (const day of enumerateQuarterDays(start, end)) {
+    dailyMap.set(day, { realized: 0, projected: 0 });
+  }
+  for (const p of perPlatform) {
+    for (const row of p.sold) {
+      if (!row.close_time_utc) continue;
+      const key = etDateKey(row.close_time_utc);
+      const bucket = dailyMap.get(key);
+      if (bucket) bucket.realized += row.final_price_usd ?? 0;
+    }
+    for (const row of p.open) {
+      if (!row.close_time_utc) continue;
+      const key = etDateKey(row.close_time_utc);
+      const bucket = dailyMap.get(key);
+      if (!bucket) continue;
+      const cur = row.current_bid_usd ?? 0;
+      const hammer = Math.max(cur, p.avgHammer);
+      bucket.projected += p.closeRate * hammer;
+    }
+  }
+
+  const daily = Array.from(dailyMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, v]) => ({
+      date,
+      realized_gmv_usd: Math.round(v.realized),
+      projected_gmv_usd: Math.round(v.projected),
+      realized_revenue_usd: Math.round(v.realized * takeRate),
+      projected_revenue_usd: Math.round(v.projected * takeRate),
+    }));
+
+  const rows = perPlatform.map((p) => {
+    const totalGmv = p.realizedGmv + p.projectedOpenGmv;
+    return {
+      platform: p.platform,
+      realized_gmv_usd: Math.round(p.realizedGmv),
+      realized_revenue_usd: Math.round(p.realizedGmv * takeRate),
+      auctions_closed: p.closed.length,
+      auctions_sold: p.sold.length,
+      close_rate: Math.round(p.closeRate * 10000) / 10000,
+      avg_hammer_usd: Math.round(p.avgHammer),
+      scheduled_open_auctions: p.open.length,
+      scheduled_open_bid_usd: Math.round(p.openBid),
+      projected_remaining_gmv_usd: Math.round(p.projectedOpenGmv),
+      projected_remaining_revenue_usd: Math.round(p.projectedOpenGmv * takeRate),
+      projected_total_gmv_usd: Math.round(totalGmv),
+      projected_total_revenue_usd: Math.round(totalGmv * takeRate),
+    };
+  });
 
   const projected_total_gmv_usd = rows.reduce((s, r) => s + r.projected_total_gmv_usd, 0);
   const projected_total_revenue_usd = rows.reduce((s, r) => s + r.projected_total_revenue_usd, 0);
@@ -355,6 +432,7 @@ export async function computeRevenueForecast(takeRate = 0.2): Promise<RevenueFor
     quarter_end: endIso,
     take_rate: takeRate,
     platforms: rows,
+    daily,
     projected_total_gmv_usd,
     projected_total_revenue_usd,
   };
