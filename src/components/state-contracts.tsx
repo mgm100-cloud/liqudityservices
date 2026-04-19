@@ -36,10 +36,20 @@ function buildSourceUrl(c: StateContractRow): string {
   const base = `https://${c.source_portal}/resource/${c.source_dataset_id}`;
   const raw = (c.raw_data ?? {}) as Record<string, unknown>;
   let q = "";
-  if (c.source_dataset_id === "n8q6-4twj") q = String(raw.contract_number ?? c.contract_id);
-  else if (c.source_dataset_id === "s4vu-giwb") q = String(raw.voucher_number ?? c.contract_id);
-  else if (c.source_dataset_id === "cyqb-8ina") q = String(raw.payment_id ?? "");
-  else q = c.vendor_name;
+  // Per-dataset: pick the most-identifying field for $q full-text search
+  switch (c.source_dataset_id) {
+    case "n8q6-4twj": q = String(raw.contract_number ?? c.contract_id); break;       // WA
+    case "s4vu-giwb": q = String(raw.voucher_number ?? c.contract_id); break;        // Chicago payments
+    case "rsxa-ify5": q = String(raw.purchase_order_contract_number ?? raw.specification_number ?? c.contract_id); break; // Chicago contracts
+    case "cyqb-8ina": q = String(raw.payment_id ?? ""); break;                       // IA checkbook
+    case "qrj9-83t8": q = String(raw.trans_id ?? raw.check_no ?? ""); break;         // Cincinnati
+    case "8c6z-qnmj": q = String(raw.rfed_doc_id ?? ""); break;                      // Austin
+    case "vpf9-6irq": q = String(raw.invoice_id ?? raw.po_num ?? ""); break;         // Montgomery MD
+    case "swwh-4ka9": q = String(raw.invoice_id ?? ""); break;                       // Riverside
+    case "6e9e-sfc4":
+    case "8izy-bwhd": q = String(raw.document_number ?? ""); break;                  // Oregon
+    default: q = c.vendor_name;
+  }
   return `${base}?$q=${encodeURIComponent(q || c.vendor_name)}`;
 }
 
@@ -47,7 +57,7 @@ export function StateContracts({ contracts }: { contracts: StateContractRow[] })
   if (contracts.length === 0) {
     return (
       <p className="text-gray-500 text-sm">
-        No state contract data yet. Tracks LQDT entities (GovDeals, Liquidity Services, Bid4Assets) in state procurement data. Currently covers: Washington, Maryland, Chicago, Iowa, New Jersey.
+        No state contract data yet. Tracks LQDT entities (GovDeals, Liquidity Services, Bid4Assets) in state/local procurement data. Currently covers: Washington, Maryland (+ Montgomery County), Iowa, New Jersey, Oregon, Chicago IL, Austin TX, Cincinnati OH, Riverside County CA.
       </p>
     );
   }

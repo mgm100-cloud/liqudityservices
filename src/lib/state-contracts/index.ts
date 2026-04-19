@@ -4,6 +4,11 @@ import { marylandAdapter } from "./maryland";
 import { chicagoAdapter } from "./chicago";
 import { iowaAdapter } from "./iowa";
 import { newJerseyAdapter } from "./newjersey";
+import { cincinnatiAdapter } from "./cincinnati";
+import { austinAdapter } from "./austin";
+import { montgomeryMdAdapter } from "./montgomeryMd";
+import { riversideAdapter } from "./riverside";
+import { oregonAdapter } from "./oregon";
 
 export const STATE_ADAPTERS: StateAdapter[] = [
   washingtonAdapter,
@@ -11,6 +16,11 @@ export const STATE_ADAPTERS: StateAdapter[] = [
   chicagoAdapter,
   iowaAdapter,
   newJerseyAdapter,
+  cincinnatiAdapter,
+  austinAdapter,
+  montgomeryMdAdapter,
+  riversideAdapter,
+  oregonAdapter,
 ];
 
 export async function fetchAllStateContracts(): Promise<{
