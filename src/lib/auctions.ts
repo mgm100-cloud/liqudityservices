@@ -65,7 +65,7 @@ function buildPayload(businessId: "AD" | "GD", page: number) {
     auctionTypeId: null,
     page,
     displayRows: PAGE_SIZE,
-    sortField: "endingsoon",
+    sortField: "bestfit",
     sortOrder: "asc",
     requestType: "search",
     responseStyle: "",
@@ -114,7 +114,15 @@ function parseListing(platform: "AD" | "GD", raw: Record<string, unknown>, rates
   };
 }
 
-async function fetchPage(platform: "AD" | "GD", page: number): Promise<{ listings: Record<string, unknown>[]; total: number | null }> {
+type FetchPageResult = {
+  listings: Record<string, unknown>[];
+  total: number | null;
+  status: number | null;
+  errorMessage: string | null;
+  responseKeys: string | null;
+};
+
+async function fetchPage(platform: "AD" | "GD", page: number): Promise<FetchPageResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25000);
   try {
@@ -129,7 +137,10 @@ async function fetchPage(platform: "AD" | "GD", page: number): Promise<{ listing
       body: JSON.stringify(buildPayload(platform, page)),
       signal: controller.signal,
     });
-    if (!res.ok) return { listings: [], total: null };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { listings: [], total: null, status: res.status, errorMessage: `http ${res.status}: ${body.slice(0, 200)}`, responseKeys: null };
+    }
     const data = await res.json();
     const headerCount = res.headers.get("x-total-count");
     const total = headerCount ? parseInt(headerCount, 10) || null : null;
@@ -137,42 +148,59 @@ async function fetchPage(platform: "AD" | "GD", page: number): Promise<{ listing
     if (Array.isArray(data?.assetSearchResults)) listings = data.assetSearchResults;
     else if (Array.isArray(data?.searchResults)) listings = data.searchResults;
     else if (Array.isArray(data)) listings = data;
-    return { listings, total };
-  } catch {
-    return { listings: [], total: null };
+    const responseKeys = data && !Array.isArray(data) ? Object.keys(data).slice(0, 10).join(",") : null;
+    return { listings, total, status: res.status, errorMessage: null, responseKeys };
+  } catch (e) {
+    return { listings: [], total: null, status: null, errorMessage: `fetch error: ${e instanceof Error ? e.message : String(e)}`, responseKeys: null };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function ingestPlatform(platform: "AD" | "GD", rates: Record<string, number>, nowIso: string): Promise<{ upserted: number; pagesFetched: number; total: number | null }> {
-  let upserted = 0;
-  let pagesFetched = 0;
-  let total: number | null = null;
+type PlatformIngestResult = {
+  upserted: number;
+  pagesFetched: number;
+  rowsParsed: number;
+  total: number | null;
+  lastStatus: number | null;
+  fetchError: string | null;
+  upsertError: string | null;
+  responseKeys: string | null;
+};
+
+async function ingestPlatform(platform: "AD" | "GD", rates: Record<string, number>, nowIso: string): Promise<PlatformIngestResult> {
+  const result: PlatformIngestResult = {
+    upserted: 0, pagesFetched: 0, rowsParsed: 0, total: null,
+    lastStatus: null, fetchError: null, upsertError: null, responseKeys: null,
+  };
 
   for (let page = 1; page <= MAX_PAGES_PER_PLATFORM; page++) {
-    const { listings, total: pageTotal } = await fetchPage(platform, page);
-    if (total === null && pageTotal !== null) total = pageTotal;
-    pagesFetched++;
+    const { listings, total, status, errorMessage, responseKeys } = await fetchPage(platform, page);
+    if (result.total === null && total !== null) result.total = total;
+    result.lastStatus = status;
+    if (errorMessage && !result.fetchError) result.fetchError = errorMessage;
+    if (responseKeys && !result.responseKeys) result.responseKeys = responseKeys;
+    result.pagesFetched++;
     if (listings.length === 0) break;
 
     const rows = listings
       .map((l) => parseListing(platform, l, rates, nowIso))
       .filter((r): r is AuctionRow => r !== null);
+    result.rowsParsed += rows.length;
 
     if (rows.length > 0) {
       const { error } = await supabase
         .from("auctions")
         .upsert(rows, { onConflict: "platform,asset_id" });
-      if (!error) upserted += rows.length;
-      else console.error(`[auctions] upsert error ${platform} p${page}: ${error.message}`);
+      if (!error) result.upserted += rows.length;
+      else if (!result.upsertError) result.upsertError = error.message;
     }
 
     if (listings.length < PAGE_SIZE) break;
-    if (total !== null && page * PAGE_SIZE >= total) break;
+    if (result.total !== null && page * PAGE_SIZE >= result.total) break;
   }
 
-  return { upserted, pagesFetched, total };
+  return result;
 }
 
 type ClosureResult = { sold: number; nosale: number };
@@ -233,9 +261,10 @@ async function sweepClosures(nowIso: string): Promise<ClosureResult> {
 }
 
 export type AuctionsIngestResult = {
-  allsurplus: { upserted: number; pagesFetched: number; total: number | null };
-  govdeals: { upserted: number; pagesFetched: number; total: number | null };
+  allsurplus: PlatformIngestResult;
+  govdeals: PlatformIngestResult;
   closures: ClosureResult;
+  rlsHint?: string;
 };
 
 export async function ingestAuctions(): Promise<AuctionsIngestResult> {
@@ -249,7 +278,18 @@ export async function ingestAuctions(): Promise<AuctionsIngestResult> {
 
   const closures = await sweepClosures(nowIso);
 
-  return { allsurplus, govdeals, closures };
+  const result: AuctionsIngestResult = { allsurplus, govdeals, closures };
+
+  // If we parsed rows but upserted zero, it's almost always RLS blocking writes.
+  const parsed = allsurplus.rowsParsed + govdeals.rowsParsed;
+  const upserted = allsurplus.upserted + govdeals.upserted;
+  if (parsed > 0 && upserted === 0) {
+    result.rlsHint =
+      "Parsed rows but upserted 0. Likely RLS: auctions table has no insert policy for the anon role. " +
+      "Add one: create policy \"anon write\" on auctions for all using (true) with check (true);";
+  }
+
+  return result;
 }
 
 export type RevenueForecast = {
