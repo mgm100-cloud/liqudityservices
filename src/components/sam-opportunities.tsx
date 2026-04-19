@@ -113,7 +113,7 @@ export function SamOpportunities({ opportunities }: { opportunities: SamOpportun
       </div>
       <p className="text-xs text-gray-400">
         <span className="inline-block w-3 h-3 align-middle mr-1 bg-amber-50 border border-amber-200 rounded-sm" />
-        Highlighted rows are from the current or past 6 months. Queries: keywords (surplus/disposal/liquidation/auction) + NAICS 561499 &amp; 423930 + LQDT (UEI WJV4A6AM6ZN6) awards.
+        Highlighted rows are from the current or past 6 months. Only LQDT-specific results: title mentions an LQDT brand, or awardee matches LQDT UEI/name.
       </p>
     </div>
   );
