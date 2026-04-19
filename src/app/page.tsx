@@ -1,11 +1,11 @@
 import { supabase } from "@/lib/supabase";
-import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow, MarketplaceSellerRow } from "@/lib/supabase";
+import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow, MarketplaceSellerRow, SamOpportunityRow, StateContractRow } from "@/lib/supabase";
 import { Dashboard } from "@/components/dashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [listingsRes, metricsRes, contractsRes, snapshotsRes, sellersRes] = await Promise.all([
+  const [listingsRes, metricsRes, contractsRes, snapshotsRes, sellersRes, samRes, stateRes] = await Promise.all([
     supabase
       .from("listings")
       .select("*")
@@ -33,6 +33,17 @@ export default async function Home() {
       .order("date", { ascending: false })
       .order("total_current_bid", { ascending: false })
       .limit(200),
+    supabase
+      .from("sam_opportunities")
+      .select("*")
+      .order("posted_date", { ascending: false })
+      .limit(100),
+    supabase
+      .from("state_contracts")
+      .select("*")
+      .order("year", { ascending: false })
+      .order("quarter", { ascending: false })
+      .limit(200),
   ]);
 
   const listings: ListingRow[] = listingsRes.data ?? [];
@@ -50,6 +61,9 @@ export default async function Home() {
   const sellersAD = latestSellers.filter((s) => s.platform === "AD");
   const sellersGD = latestSellers.filter((s) => s.platform === "GD");
 
+  const samOpportunities: SamOpportunityRow[] = samRes.data ?? [];
+  const stateContracts: StateContractRow[] = stateRes.data ?? [];
+
   return (
     <main className="px-6 py-10">
       <h1 className="text-2xl font-bold mb-1">LQDT Listings Tracker</h1>
@@ -64,6 +78,8 @@ export default async function Home() {
         contractSnapshot={contractSnapshot}
         sellersAllsurplus={sellersAD}
         sellersGovdeals={sellersGD}
+        samOpportunities={samOpportunities}
+        stateContracts={stateContracts}
       />
     </main>
   );

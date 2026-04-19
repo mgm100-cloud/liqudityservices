@@ -3,6 +3,8 @@ import { supabase } from "@/lib/supabase";
 import { scrapeListings } from "@/lib/scraper";
 import { scrapeMarketplaceMetrics } from "@/lib/marketplace-metrics";
 import { fetchNewContracts, fetchContractSummary } from "@/lib/contracts";
+import { fetchSamOpportunities } from "@/lib/sam-opportunities";
+import { fetchAllStateContracts } from "@/lib/state-contracts";
 import { sendDailySummary } from "@/lib/email";
 
 export const maxDuration = 60;
@@ -26,10 +28,12 @@ export async function GET(request: Request) {
   const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
   // Run all scrapes in parallel
-  const [listingResult, metricsResult, newContracts] = await Promise.all([
+  const [listingResult, metricsResult, newContracts, samResult, stateResult] = await Promise.all([
     scrapeListings(),
     scrapeMarketplaceMetrics().catch(() => null),
     fetchNewContracts(99999).catch(() => [] as Awaited<ReturnType<typeof fetchNewContracts>>),
+    fetchSamOpportunities(90).catch((e) => ({ opportunities: [], debug: `error: ${e instanceof Error ? e.message : String(e)}` })),
+    fetchAllStateContracts().catch((e) => ({ contracts: [], perState: { _error: { count: 0, error: e instanceof Error ? e.message : String(e) } } })),
   ]);
 
   const { allsurplus, govdeals } = listingResult;
@@ -55,7 +59,8 @@ export async function GET(request: Request) {
 
     // Store seller snapshots
     const toRow = (s: typeof adSellers[number], plat: "AD" | "GD") => {
-      const { top_bid_amount: _, ...rest } = s;
+      const { top_bid_amount, ...rest } = s;
+      void top_bid_amount;
       return { date, platform: plat, ...rest };
     };
     const sellerRows = [
@@ -80,7 +85,7 @@ export async function GET(request: Request) {
   }
 
   // 3. Store new contracts (upsert to avoid duplicates)
-  let contractsDb: Record<string, unknown> = { newContracts: 0, snapshot: false, contractsFetched: newContracts.length };
+  const contractsDb: Record<string, unknown> = { newContracts: 0, snapshot: false, contractsFetched: newContracts.length };
   if (newContracts.length > 0) {
     const contractRows = newContracts.map((c) => ({
       ...c,
@@ -105,7 +110,30 @@ export async function GET(request: Request) {
     contractsDb.snapshot = !error;
   }
 
-  // 5. Send email
+  // 5. Store SAM.gov opportunities
+  let samDb: Record<string, unknown> = { stored: 0, debug: samResult.debug };
+  if (samResult.opportunities.length > 0) {
+    const samRows = samResult.opportunities.map((o) => ({ ...o, first_seen_date: date }));
+    const { error } = await supabase
+      .from("sam_opportunities")
+      .upsert(samRows, { onConflict: "notice_id", ignoreDuplicates: true });
+    samDb = { stored: error ? 0 : samRows.length, debug: samResult.debug, error: error?.message ?? null };
+  }
+
+  // 6. Store state contracts
+  let stateDb: Record<string, unknown> = { stored: 0, perState: stateResult.perState };
+  if (stateResult.contracts.length > 0) {
+    const stateRows = stateResult.contracts.map((c) => ({ ...c, first_seen_date: date }));
+    const { error } = await supabase
+      .from("state_contracts")
+      .upsert(stateRows, {
+        onConflict: "state_code,source_dataset_id,contract_id,vendor_normalized,year,quarter,customer_agency",
+        ignoreDuplicates: true,
+      });
+    stateDb = { stored: error ? 0 : stateRows.length, perState: stateResult.perState, error: error?.message ?? null };
+  }
+
+  // 7. Send email
   let emailResult: { success: boolean; error?: string; chartIncluded?: boolean; chartDebug?: string } = { success: false, error: "skipped" };
   if (process.env.RESEND_API_KEY) {
     emailResult = await sendDailySummary({ date, timestamp, allsurplus, govdeals });
@@ -119,6 +147,8 @@ export async function GET(request: Request) {
     db: dbError ? { error: dbError.message } : { success: true },
     metrics: metricsDb,
     contracts: contractsDb,
+    sam: samDb,
+    stateContracts: stateDb,
     email: emailResult,
   });
 }
