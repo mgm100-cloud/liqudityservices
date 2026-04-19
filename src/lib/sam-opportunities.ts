@@ -1,4 +1,4 @@
-const SAM_BASE = "https://api.sam.gov/opportunities/v2/search";
+const SAM_BASE = "https://api.sam.gov/prod/opportunities/v2/search";
 const LQDT_UEI = "WJV4A6AM6ZN6";
 
 export type SamOpportunity = {
