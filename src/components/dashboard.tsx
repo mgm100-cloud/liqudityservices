@@ -1,13 +1,15 @@
 "use client";
 
 import { useRef, useState, useMemo } from "react";
-import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow, MarketplaceSellerRow } from "@/lib/supabase";
+import type { ListingRow, MarketplaceMetricsRow, FederalContractRow, ContractSnapshotRow, MarketplaceSellerRow, SamOpportunityRow, StateContractRow } from "@/lib/supabase";
 import { ListingsChart } from "./listings-chart";
 import { ListingsTable } from "./listings-table";
 import { EmailSnapshot } from "./email-snapshot";
 import { MarketplaceMetrics } from "./marketplace-metrics";
 import { FederalContracts } from "./federal-contracts";
 import { TopSellers } from "./top-sellers";
+import { SamOpportunities } from "./sam-opportunities";
+import { StateContracts } from "./state-contracts";
 
 const RANGES = ["All", "3Y", "1Y", "6M", "3M", "1M"] as const;
 type Range = (typeof RANGES)[number];
@@ -34,6 +36,8 @@ export function Dashboard({
   metricsGovdeals,
   contracts,
   contractSnapshot,
+  samOpportunities,
+  stateContracts,
 }: {
   listings: ListingRow[];
   metricsAllsurplus: MarketplaceMetricsRow | null;
@@ -42,6 +46,8 @@ export function Dashboard({
   contractSnapshot: ContractSnapshotRow | null;
   sellersAllsurplus: MarketplaceSellerRow[];
   sellersGovdeals: MarketplaceSellerRow[];
+  samOpportunities: SamOpportunityRow[];
+  stateContracts: StateContractRow[];
 }) {
   const [range, setRange] = useState<Range>("All");
   const chartRef = useRef<HTMLDivElement>(null);
@@ -113,6 +119,16 @@ export function Dashboard({
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-4">Federal Contracts</h2>
         <FederalContracts contracts={contracts} snapshot={contractSnapshot} />
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-4">Federal Opportunities (SAM.gov)</h2>
+        <SamOpportunities opportunities={samOpportunities} />
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-4">State &amp; Local Contracts</h2>
+        <StateContracts contracts={stateContracts} />
       </section>
 
       <section>

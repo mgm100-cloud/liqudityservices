@@ -73,6 +73,48 @@ export type MarketplaceSellerRow = {
   created_at: string;
 };
 
+export type SamOpportunityRow = {
+  id: number;
+  notice_id: string;
+  title: string;
+  solicitation_number: string | null;
+  organization: string | null;
+  posted_date: string | null;
+  response_deadline: string | null;
+  notice_type: string | null;
+  base_type: string | null;
+  naics_code: string | null;
+  classification_code: string | null;
+  description_url: string | null;
+  ui_link: string | null;
+  awardee_name: string | null;
+  awardee_uei: string | null;
+  award_amount: number | null;
+  award_date: string | null;
+  first_seen_date: string;
+  created_at: string;
+};
+
+export type StateContractRow = {
+  id: number;
+  state_code: string;
+  source_portal: string;
+  source_dataset_id: string;
+  contract_id: string;
+  vendor_name: string;
+  vendor_normalized: string;
+  customer_agency: string;
+  contract_title: string | null;
+  amount: number | null;
+  year: string;
+  quarter: string;
+  period_start: string | null;
+  period_end: string | null;
+  raw_data: Record<string, unknown> | null;
+  first_seen_date: string;
+  created_at: string;
+};
+
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
