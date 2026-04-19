@@ -322,6 +322,19 @@ export type RevenueForecast = {
   }[];
   projected_total_gmv_usd: number;
   projected_total_revenue_usd: number;
+  debug: {
+    now_iso: string;
+    total_rows: number;
+    by_platform: Record<string, number>;
+    by_status: Record<string, number>;
+    with_close_time: number;
+    without_close_time: number;
+    in_quarter_open: number;
+    in_quarter_closed: number;
+    min_close_time: string | null;
+    max_close_time: string | null;
+    sample_row: Record<string, unknown> | null;
+  };
 };
 
 function quarterBounds(d: Date): { start: Date; end: Date; label: string } {
@@ -355,6 +368,56 @@ function enumerateQuarterDays(start: Date, end: Date): string[] {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return days;
+}
+
+async function collectDebug(nowIso: string, startIso: string, endIso: string) {
+  const [allRes, sampleRes] = await Promise.all([
+    supabase
+      .from("auctions")
+      .select("platform, status, close_time_utc"),
+    supabase
+      .from("auctions")
+      .select("*")
+      .limit(1),
+  ]);
+  const rows = allRes.data ?? [];
+  const by_platform: Record<string, number> = {};
+  const by_status: Record<string, number> = {};
+  let with_close_time = 0;
+  let without_close_time = 0;
+  let in_quarter_open = 0;
+  let in_quarter_closed = 0;
+  let min_close_time: string | null = null;
+  let max_close_time: string | null = null;
+  for (const r of rows as { platform: string; status: string; close_time_utc: string | null }[]) {
+    by_platform[r.platform] = (by_platform[r.platform] ?? 0) + 1;
+    by_status[r.status] = (by_status[r.status] ?? 0) + 1;
+    if (r.close_time_utc) {
+      with_close_time++;
+      if (min_close_time === null || r.close_time_utc < min_close_time) min_close_time = r.close_time_utc;
+      if (max_close_time === null || r.close_time_utc > max_close_time) max_close_time = r.close_time_utc;
+      const inQ = r.close_time_utc >= startIso && r.close_time_utc < endIso;
+      if (inQ) {
+        if (r.status === "open" && r.close_time_utc >= nowIso) in_quarter_open++;
+        if (r.status === "closed_sold" || r.status === "closed_nosale") in_quarter_closed++;
+      }
+    } else {
+      without_close_time++;
+    }
+  }
+  return {
+    now_iso: nowIso,
+    total_rows: rows.length,
+    by_platform,
+    by_status,
+    with_close_time,
+    without_close_time,
+    in_quarter_open,
+    in_quarter_closed,
+    min_close_time,
+    max_close_time,
+    sample_row: (sampleRes.data?.[0] as Record<string, unknown> | undefined) ?? null,
+  };
 }
 
 export async function computeRevenueForecast(takeRate = 0.2): Promise<RevenueForecast> {
@@ -467,6 +530,8 @@ export async function computeRevenueForecast(takeRate = 0.2): Promise<RevenueFor
   const projected_total_gmv_usd = rows.reduce((s, r) => s + r.projected_total_gmv_usd, 0);
   const projected_total_revenue_usd = rows.reduce((s, r) => s + r.projected_total_revenue_usd, 0);
 
+  const debug = await collectDebug(nowIso, startIso, endIso);
+
   return {
     quarter: label,
     quarter_start: startIso,
@@ -476,5 +541,6 @@ export async function computeRevenueForecast(takeRate = 0.2): Promise<RevenueFor
     daily,
     projected_total_gmv_usd,
     projected_total_revenue_usd,
+    debug,
   };
 }
