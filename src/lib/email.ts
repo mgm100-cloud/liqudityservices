@@ -23,50 +23,131 @@ async function generateChartImage(rows: ListingRow[]): Promise<{ image: string |
 
   const chronological = [...withData].reverse();
 
+  // Cutoff: last 1 year shown on chart; earlier rows are used only for Y/Y lookup.
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const displayCutoff = oneYearAgo.toISOString().slice(0, 10);
+
+  // Build date → row map for Y/Y lookup (take latest row per date).
+  const byDate = new Map<string, ListingRow>();
+  for (const r of chronological) byDate.set(r.date, r);
+
+  const priorYearValue = (dateStr: string, key: "allsurplus" | "govdeals"): number | null => {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setFullYear(d.getFullYear() - 1);
+    // Search a ±7-day window around the prior-year date for the nearest available value.
+    for (let offset = 0; offset <= 7; offset++) {
+      for (const sign of [0, -1, 1]) {
+        if (offset === 0 && sign !== 0) continue;
+        const probe = new Date(d);
+        probe.setDate(probe.getDate() + sign * offset);
+        const key2 = probe.toISOString().slice(0, 10);
+        const row = byDate.get(key2);
+        const v = row?.[key];
+        if (v != null) return v;
+      }
+    }
+    return null;
+  };
+
+  const displayed = chronological.filter((r) => r.date >= displayCutoff);
+  if (displayed.length === 0) return { image: null, debug: "no rows in display window" };
+
   // QuickChart free tier allows max 250 labels — downsample if needed
   const MAX_LABELS = 250;
-  let sampled = chronological;
-  if (chronological.length > MAX_LABELS) {
-    const step = chronological.length / MAX_LABELS;
+  let sampled = displayed;
+  if (displayed.length > MAX_LABELS) {
+    const step = displayed.length / MAX_LABELS;
     const indices = Array.from({ length: MAX_LABELS }, (_, i) => Math.round(i * step));
-    indices[indices.length - 1] = chronological.length - 1;
-    sampled = indices.map((i) => chronological[i]);
+    indices[indices.length - 1] = displayed.length - 1;
+    sampled = indices.map((i) => displayed[i]);
   }
 
   const labels = sampled.map((r) => r.date);
   const asData = sampled.map((r) => (r.allsurplus != null ? r.allsurplus : null));
   const gdData = sampled.map((r) => (r.govdeals != null ? r.govdeals : null));
 
+  const pctChange = (curr: number | null, prev: number | null): number | null => {
+    if (curr == null || prev == null || prev === 0) return null;
+    return ((curr - prev) / prev) * 100;
+  };
+
+  const asYoy = sampled.map((r) => pctChange(r.allsurplus, priorYearValue(r.date, "allsurplus")));
+  const gdYoy = sampled.map((r) => pctChange(r.govdeals, priorYearValue(r.date, "govdeals")));
+  const hasYoy = asYoy.some((v) => v != null) || gdYoy.some((v) => v != null);
+
+  const datasets: Record<string, unknown>[] = [
+    {
+      label: "AllSurplus",
+      data: asData,
+      borderColor: "#2563eb",
+      borderWidth: 2,
+      pointRadius: 0,
+      fill: false,
+      spanGaps: true,
+      yAxisID: "y-count",
+    },
+    {
+      label: "GovDeals",
+      data: gdData,
+      borderColor: "#16a34a",
+      borderWidth: 2,
+      pointRadius: 0,
+      fill: false,
+      spanGaps: true,
+      yAxisID: "y-count",
+    },
+  ];
+
+  if (hasYoy) {
+    datasets.push(
+      {
+        label: "AllSurplus Y/Y %",
+        data: asYoy,
+        borderColor: "#2563eb",
+        borderDash: [6, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        spanGaps: true,
+        yAxisID: "y-yoy",
+      },
+      {
+        label: "GovDeals Y/Y %",
+        data: gdYoy,
+        borderColor: "#16a34a",
+        borderDash: [6, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        spanGaps: true,
+        yAxisID: "y-yoy",
+      },
+    );
+  }
+
   const chartConfig = {
     type: "line",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "AllSurplus",
-          data: asData,
-          borderColor: "#2563eb",
-          borderWidth: 2,
-          pointRadius: 0,
-          fill: false,
-          spanGaps: true,
-        },
-        {
-          label: "GovDeals",
-          data: gdData,
-          borderColor: "#16a34a",
-          borderWidth: 2,
-          pointRadius: 0,
-          fill: false,
-          spanGaps: true,
-        },
-      ],
-    },
+    data: { labels, datasets },
     options: {
-      title: { display: true, text: "LQDT Active Listings (1 Year)" },
+      title: { display: true, text: "LQDT Active Listings (1 Year) — solid: count, dashed: Y/Y %" },
       scales: {
         xAxes: [{ ticks: { maxTicksLimit: 12, fontSize: 10 } }],
-        yAxes: [{ ticks: { beginAtZero: false } }],
+        yAxes: [
+          {
+            id: "y-count",
+            position: "left",
+            ticks: { beginAtZero: false },
+            scaleLabel: { display: true, labelString: "Active Listings" },
+          },
+          {
+            id: "y-yoy",
+            position: "right",
+            scaleLabel: { display: true, labelString: "Y/Y Growth (%)" },
+            gridLines: { drawOnChartArea: false },
+          },
+        ],
       },
       legend: { position: "bottom" },
     },
@@ -104,18 +185,25 @@ export async function sendDailySummary({ date, timestamp, allsurplus, govdeals }
   const to = process.env.NOTIFICATION_EMAIL;
   if (!to) return { success: false, error: "NOTIFICATION_EMAIL not set" };
 
-  const oneYearAgo = new Date();
-  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-  const cutoff = oneYearAgo.toISOString().slice(0, 10);
+  // Fetch 2 years: the most-recent 1 year is displayed, the earlier year
+  // powers the Y/Y growth comparison line.
+  const twoYearsAgo = new Date();
+  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+  const chartCutoff = twoYearsAgo.toISOString().slice(0, 10);
 
-  const { data: rows } = await supabase
+  const { data: allRows } = await supabase
     .from("listings")
     .select("*")
-    .gte("date", cutoff)
+    .gte("date", chartCutoff)
     .order("date", { ascending: false })
     .order("timestamp", { ascending: false });
 
-  const chartResult = await generateChartImage(rows ?? []);
+  const chartResult = await generateChartImage(allRows ?? []);
+
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const tableCutoff = oneYearAgo.toISOString().slice(0, 10);
+  const rows = (allRows ?? []).filter((r) => r.date >= tableCutoff);
 
   const attachments: { filename: string; content: string; content_type: string; contentId: string }[] = [];
   let chartHtml = "";
