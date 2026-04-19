@@ -69,18 +69,28 @@ function mapOpportunity(raw: SamRaw): SamOpportunity | null {
   };
 }
 
+// SAM.gov's API rejects percent-encoded forward slashes in date params (returns
+// 404), so build the query string manually and leave '/' as raw characters.
+function buildSamUrl(apiKey: string, params: Record<string, string>): string {
+  const enc = (s: string) => encodeURIComponent(s).replace(/%2F/gi, "/");
+  const parts = [`api_key=${enc(apiKey)}`];
+  for (const [k, v] of Object.entries(params)) parts.push(`${k}=${enc(v)}`);
+  return `${SAM_BASE}?${parts.join("&")}`;
+}
+
 async function samFetch(params: Record<string, string>): Promise<SamOpportunity[]> {
   const apiKey = process.env.SAM_API_KEY;
   if (!apiKey) {
     console.error("[sam] SAM_API_KEY not set");
     return [];
   }
-  const url = new URL(SAM_BASE);
-  url.searchParams.set("api_key", apiKey);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const fullUrl = buildSamUrl(apiKey, params);
 
   try {
-    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(20000) });
+    const res = await fetch(fullUrl, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(20000),
+    });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error(`[sam] HTTP ${res.status} for ${Object.entries(params).map(([k]) => k).join(",")}: ${body.slice(0, 300)}`);
