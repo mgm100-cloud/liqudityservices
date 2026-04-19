@@ -1,6 +1,6 @@
 import type { StateAdapter, StateContract } from "./types";
 import { normalizeVendor, SEARCH_TERMS } from "./types";
-import { socrataFetchByTerms, socrataFetchByWhere } from "./socrata";
+import { socrataFetchByWhere } from "./socrata";
 
 const STRICT_PATTERNS = [
   "govdeals",
@@ -43,8 +43,9 @@ function n(v: string | undefined): number {
 }
 
 async function fetchPayments(): Promise<StateContract[]> {
-  const rows = await socrataFetchByTerms<ChiPayRow>(
+  const rows = await socrataFetchByWhere<ChiPayRow>(
     { portal: "data.cityofchicago.org", datasetId: "s4vu-giwb" },
+    "vendor_name",
     SEARCH_TERMS,
   );
   const out: StateContract[] = [];

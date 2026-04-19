@@ -7,7 +7,6 @@ import { newJerseyAdapter } from "./newjersey";
 import { cincinnatiAdapter } from "./cincinnati";
 import { austinAdapter } from "./austin";
 import { montgomeryMdAdapter } from "./montgomeryMd";
-import { riversideAdapter } from "./riverside";
 import { oregonAdapter } from "./oregon";
 
 export const STATE_ADAPTERS: StateAdapter[] = [
@@ -19,7 +18,6 @@ export const STATE_ADAPTERS: StateAdapter[] = [
   cincinnatiAdapter,
   austinAdapter,
   montgomeryMdAdapter,
-  riversideAdapter,
   oregonAdapter,
 ];
 

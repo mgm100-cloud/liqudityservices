@@ -1,6 +1,6 @@
 import type { StateAdapter, StateContract } from "./types";
 import { normalizeVendor, SEARCH_TERMS } from "./types";
-import { socrataFetchByTerms } from "./socrata";
+import { socrataFetchByWhere } from "./socrata";
 
 // Iowa State Checkbook (per-payment)
 type IaCheckRow = {
@@ -35,8 +35,9 @@ function n(v: string | undefined): number {
 }
 
 async function fetchCheckbook(): Promise<StateContract[]> {
-  const rows = await socrataFetchByTerms<IaCheckRow>(
+  const rows = await socrataFetchByWhere<IaCheckRow>(
     { portal: "data.iowa.gov", datasetId: "cyqb-8ina" },
+    "vendor",
     SEARCH_TERMS,
   );
   const out: StateContract[] = [];
@@ -68,8 +69,9 @@ async function fetchCheckbook(): Promise<StateContract[]> {
 }
 
 async function fetchRegents(): Promise<StateContract[]> {
-  const rows = await socrataFetchByTerms<IaRegentsRow>(
+  const rows = await socrataFetchByWhere<IaRegentsRow>(
     { portal: "data.iowa.gov", datasetId: "y3id-d73d" },
+    "vendor_name",
     SEARCH_TERMS,
   );
   const out: StateContract[] = [];

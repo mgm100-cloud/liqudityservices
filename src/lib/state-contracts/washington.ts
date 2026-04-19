@@ -1,6 +1,6 @@
 import type { StateAdapter, StateContract } from "./types";
 import { normalizeVendor, SEARCH_TERMS } from "./types";
-import { socrataFetchByTerms } from "./socrata";
+import { socrataFetchByWhere } from "./socrata";
 
 type WaRow = {
   customer_type?: string;
@@ -47,8 +47,9 @@ export const washingtonAdapter: StateAdapter = {
   stateCode: "WA",
   portal: "data.wa.gov",
   async fetch(): Promise<StateContract[]> {
-    const rows = await socrataFetchByTerms<WaRow>(
+    const rows = await socrataFetchByWhere<WaRow>(
       { portal: "data.wa.gov", datasetId: "n8q6-4twj" },
+      "vendor_name",
       SEARCH_TERMS,
     );
     const out: StateContract[] = [];
