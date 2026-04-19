@@ -55,7 +55,9 @@ export async function GET(request: Request) {
       { date, timestamp, ...adData },
       { date, timestamp, ...gdData },
     ];
-    const { error } = await supabase.from("marketplace_metrics").insert(rows);
+    const { error } = await supabase
+      .from("marketplace_metrics")
+      .upsert(rows, { onConflict: "date,platform" });
 
     // Store seller snapshots
     const toRow = (s: typeof adSellers[number], plat: "AD" | "GD") => {
@@ -69,7 +71,9 @@ export async function GET(request: Request) {
     ];
     let sellersStored = 0;
     if (sellerRows.length > 0) {
-      const { error: sellerErr } = await supabase.from("marketplace_sellers").insert(sellerRows);
+      const { error: sellerErr } = await supabase
+        .from("marketplace_sellers")
+        .upsert(sellerRows, { onConflict: "date,platform,account_id" });
       sellersStored = sellerErr ? 0 : sellerRows.length;
     }
 
@@ -97,16 +101,19 @@ export async function GET(request: Request) {
     contractsDb.newContracts = error ? 0 : newContracts.length;
   }
 
-  // 4. Store contract snapshot
+  // 4. Store contract snapshot (one per date; later runs overwrite)
   if (contractSummary) {
-    const { error } = await supabase.from("contract_snapshots").insert({
-      date,
-      total_active_contracts: contractSummary.total_active_contracts,
-      total_obligated_amount: contractSummary.total_obligated_amount,
-      new_contracts_last_30d: contractSummary.new_contracts_last_30d,
-      new_obligation_last_30d: contractSummary.new_obligation_last_30d,
-      top_agencies: contractSummary.top_agencies,
-    });
+    const { error } = await supabase.from("contract_snapshots").upsert(
+      {
+        date,
+        total_active_contracts: contractSummary.total_active_contracts,
+        total_obligated_amount: contractSummary.total_obligated_amount,
+        new_contracts_last_30d: contractSummary.new_contracts_last_30d,
+        new_obligation_last_30d: contractSummary.new_obligation_last_30d,
+        top_agencies: contractSummary.top_agencies,
+      },
+      { onConflict: "date" },
+    );
     contractsDb.snapshot = !error;
   }
 
