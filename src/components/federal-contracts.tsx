@@ -9,6 +9,12 @@ function fmtDollar(n: number | null | undefined) {
   return "$" + n.toFixed(0);
 }
 
+function sixMonthCutoff(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 6);
+  return d.toISOString().slice(0, 10);
+}
+
 export function FederalContracts({
   contracts,
   snapshot,
@@ -61,7 +67,13 @@ export function FederalContracts({
 
       {contracts.length > 0 && (
         <div>
-          <p className="text-xs text-gray-500 mb-2">Recent Contract Awards</p>
+          <div className="flex items-baseline justify-between mb-2">
+            <p className="text-xs text-gray-500">Recent Contract Awards</p>
+            <p className="text-xs text-gray-400">
+              <span className="inline-block w-3 h-3 align-middle mr-1 bg-amber-50 border border-amber-200 rounded-sm" />
+              Current or past 6 months
+            </p>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -74,15 +86,19 @@ export function FederalContracts({
                 </tr>
               </thead>
               <tbody>
-                {contracts.slice(0, 20).map((c) => (
-                  <tr key={c.award_id} className="border-b border-gray-100">
-                    <td className="py-1.5 pr-4 font-mono text-xs">{c.award_id}</td>
-                    <td className="py-1.5 pr-4 truncate max-w-[200px]">{c.awarding_agency ?? "—"}</td>
-                    <td className="py-1.5 pr-4 text-right tabular-nums">{fmtDollar(c.total_obligation)}</td>
-                    <td className="py-1.5 pr-4 whitespace-nowrap">{c.start_date ?? "—"}</td>
-                    <td className="py-1.5 truncate max-w-[300px] text-gray-500">{c.description ?? "—"}</td>
-                  </tr>
-                ))}
+                {contracts.slice(0, 20).map((c) => {
+                  const cutoff = sixMonthCutoff();
+                  const recent = !!c.start_date && c.start_date >= cutoff;
+                  return (
+                    <tr key={c.award_id} className={`border-b border-gray-100 ${recent ? "bg-amber-50" : ""}`}>
+                      <td className="py-1.5 pr-4 font-mono text-xs">{c.award_id}</td>
+                      <td className="py-1.5 pr-4 truncate max-w-[200px]">{c.awarding_agency ?? "—"}</td>
+                      <td className="py-1.5 pr-4 text-right tabular-nums">{fmtDollar(c.total_obligation)}</td>
+                      <td className="py-1.5 pr-4 whitespace-nowrap">{c.start_date ?? "—"}</td>
+                      <td className="py-1.5 truncate max-w-[300px] text-gray-500">{c.description ?? "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -9,6 +9,12 @@ function fmtDollar(n: number | null | undefined) {
   return "$" + n.toFixed(0);
 }
 
+function sixMonthCutoff(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 6);
+  return d.toISOString().slice(0, 10);
+}
+
 function noticeTypeBadge(t: string | null): string {
   if (!t) return "bg-gray-100 text-gray-600";
   const s = t.toLowerCase();
@@ -69,39 +75,45 @@ export function SamOpportunities({ opportunities }: { opportunities: SamOpportun
             </tr>
           </thead>
           <tbody>
-            {opportunities.slice(0, 30).map((o) => (
-              <tr key={o.notice_id} className="border-b border-gray-100">
-                <td className="py-1.5 pr-4 whitespace-nowrap text-gray-500">{o.posted_date?.slice(0, 10) ?? "—"}</td>
-                <td className="py-1.5 pr-4">
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${noticeTypeBadge(o.notice_type)}`}>
-                    {o.notice_type ?? "—"}
-                  </span>
-                </td>
-                <td className="py-1.5 pr-4 max-w-[340px]">
-                  {o.ui_link ? (
-                    <a
-                      href={o.ui_link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline truncate block"
-                      title={o.title}
-                    >
-                      {o.title}
-                    </a>
-                  ) : (
-                    <span className="truncate block" title={o.title}>{o.title}</span>
-                  )}
-                </td>
-                <td className="py-1.5 pr-4 truncate max-w-[180px] text-gray-500">{o.organization ?? "—"}</td>
-                <td className="py-1.5 pr-4 font-mono text-xs text-gray-500">{o.naics_code ?? "—"}</td>
-                <td className="py-1.5 text-right tabular-nums">{fmtDollar(o.award_amount)}</td>
-              </tr>
-            ))}
+            {opportunities.slice(0, 30).map((o) => {
+              const cutoff = sixMonthCutoff();
+              const posted = o.posted_date?.slice(0, 10) ?? "";
+              const recent = !!posted && posted >= cutoff;
+              return (
+                <tr key={o.notice_id} className={`border-b border-gray-100 ${recent ? "bg-amber-50" : ""}`}>
+                  <td className="py-1.5 pr-4 whitespace-nowrap text-gray-500">{posted || "—"}</td>
+                  <td className="py-1.5 pr-4">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${noticeTypeBadge(o.notice_type)}`}>
+                      {o.notice_type ?? "—"}
+                    </span>
+                  </td>
+                  <td className="py-1.5 pr-4 max-w-[340px]">
+                    {o.ui_link ? (
+                      <a
+                        href={o.ui_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline truncate block"
+                        title={o.title}
+                      >
+                        {o.title}
+                      </a>
+                    ) : (
+                      <span className="truncate block" title={o.title}>{o.title}</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-4 truncate max-w-[180px] text-gray-500">{o.organization ?? "—"}</td>
+                  <td className="py-1.5 pr-4 font-mono text-xs text-gray-500">{o.naics_code ?? "—"}</td>
+                  <td className="py-1.5 text-right tabular-nums">{fmtDollar(o.award_amount)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
       <p className="text-xs text-gray-400">
-        Queries: keywords (surplus/disposal/liquidation/auction) + NAICS 561499 &amp; 423930 + LQDT (UEI WJV4A6AM6ZN6) awards.
+        <span className="inline-block w-3 h-3 align-middle mr-1 bg-amber-50 border border-amber-200 rounded-sm" />
+        Highlighted rows are from the current or past 6 months. Queries: keywords (surplus/disposal/liquidation/auction) + NAICS 561499 &amp; 423930 + LQDT (UEI WJV4A6AM6ZN6) awards.
       </p>
     </div>
   );
