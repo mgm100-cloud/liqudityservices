@@ -142,9 +142,18 @@ export async function GET(request: Request) {
     stateDb = { stored: error ? 0 : stateRows.length, perState: stateResult.perState, error: error?.message ?? null };
   }
 
-  // 7. Send email
-  let emailResult: { success: boolean; error?: string; chartIncluded?: boolean; chartDebug?: string } = { success: false, error: "skipped" };
-  if (process.env.RESEND_API_KEY) {
+  // 7. Send email — only on the noon ET run (cron fires every 4h at 00/04/08/12/16/20 UTC;
+  // 16 UTC = noon ET during DST, 17 UTC = noon ET during EST, so hour 16 is the closest
+  // scheduled slot to local noon year-round). Pass ?sendEmail=1 to override for manual runs.
+  const forceEmail = searchParams.get("sendEmail") === "1";
+  const skipEmail = searchParams.get("sendEmail") === "0";
+  const isNoonRun = now.getHours() === 12;
+  const shouldEmail = !skipEmail && (forceEmail || isNoonRun);
+  let emailResult: { success: boolean; error?: string; chartIncluded?: boolean; chartDebug?: string } = {
+    success: false,
+    error: shouldEmail ? "skipped" : "skipped: not noon ET run",
+  };
+  if (shouldEmail && process.env.RESEND_API_KEY) {
     emailResult = await sendDailySummary({ date, timestamp, allsurplus, govdeals });
   }
 
