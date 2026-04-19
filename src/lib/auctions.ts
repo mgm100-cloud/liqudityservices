@@ -5,8 +5,9 @@ const MAESTRO_URL = process.env.MAESTRO_API_URL || "https://maestro.lqdt1.com";
 const MAESTRO_KEY =
   process.env.MAESTRO_API_KEY || "af93060f-337e-428c-87b8-c74b5837d6cd";
 
-const PAGE_SIZE = Number(process.env.AUCTIONS_PAGE_SIZE) || 200;
-const MAX_PAGES_PER_PLATFORM = Number(process.env.AUCTIONS_MAX_PAGES) || 5;
+const PAGE_SIZE = Number(process.env.AUCTIONS_PAGE_SIZE) || 50;
+const MAX_PAGES_PER_PLATFORM = Number(process.env.AUCTIONS_MAX_PAGES) || 10;
+const PAGE_TIMEOUT_MS = Number(process.env.AUCTIONS_PAGE_TIMEOUT_MS) || 40000;
 
 const CURRENCY_MAP: Record<string, string> = {
   USD: "USD", ZAR: "ZAR", EUR: "EUR", GBP: "GBP", CAD: "CAD",
@@ -124,7 +125,7 @@ type FetchPageResult = {
 
 async function fetchPage(platform: "AD" | "GD", page: number): Promise<FetchPageResult> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
+  const timeout = setTimeout(() => controller.abort(), PAGE_TIMEOUT_MS);
   try {
     const res = await fetch(`${MAESTRO_URL}/search/list`, {
       method: "POST",
