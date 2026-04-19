@@ -1,5 +1,3 @@
-const SAM_BASE = "https://api.sam.gov/opportunities/v2/search";
-
 export type SamOpportunity = {
   notice_id: string;
   title: string;
@@ -39,6 +37,12 @@ type SamRaw = {
   };
 };
 
+// GSA docs show both URL variants in different examples. We try both.
+const SAM_ENDPOINTS = [
+  "https://api.sam.gov/opportunities/v2/search",
+  "https://api.sam.gov/prod/opportunities/v2/search",
+];
+
 function fmtDate(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -69,72 +73,112 @@ function mapOpportunity(raw: SamRaw): SamOpportunity | null {
   };
 }
 
-// SAM.gov's API rejects percent-encoded forward slashes in date params (returns
-// 404), so build the query string manually and leave '/' as raw characters.
-function buildSamUrl(apiKey: string, params: Record<string, string>): string {
-  const enc = (s: string) => encodeURIComponent(s).replace(/%2F/gi, "/");
-  const parts = [`api_key=${enc(apiKey)}`];
-  for (const [k, v] of Object.entries(params)) parts.push(`${k}=${enc(v)}`);
-  return `${SAM_BASE}?${parts.join("&")}`;
+// Build a query string without percent-encoding forward slashes in date values.
+// SAM dates use MM/DD/YYYY and some gateways reject %2F-encoded slashes.
+function buildQs(params: Record<string, string>): string {
+  return Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%2F/gi, "/")}`)
+    .join("&");
 }
 
-async function samFetch(params: Record<string, string>): Promise<SamOpportunity[]> {
-  const apiKey = process.env.SAM_API_KEY;
-  if (!apiKey) {
-    console.error("[sam] SAM_API_KEY not set");
-    return [];
-  }
-  const fullUrl = buildSamUrl(apiKey, params);
+function maskKey(url: string): string {
+  return url.replace(/api_key=[^&]+/, "api_key=***");
+}
 
-  try {
-    const res = await fetch(fullUrl, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(`[sam] HTTP ${res.status} for ${Object.entries(params).map(([k]) => k).join(",")}: ${body.slice(0, 300)}`);
-      return [];
+// Try each endpoint until one returns non-404. Cache which one works.
+let workingEndpoint: string | null = null;
+
+async function samFetch(
+  apiKey: string,
+  params: Record<string, string>,
+): Promise<SamOpportunity[]> {
+  const qs = buildQs({ api_key: apiKey, ...params });
+  const endpoints = workingEndpoint ? [workingEndpoint] : SAM_ENDPOINTS;
+
+  for (const base of endpoints) {
+    const url = `${base}?${qs}`;
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(20_000),
+      });
+
+      if (res.status === 404) {
+        const body = await res.text().catch(() => "");
+        console.warn(`[sam] 404 from ${maskKey(url).slice(0, 80)}… body: ${body.slice(0, 200) || "(empty)"}`);
+        continue;
+      }
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        console.error(`[sam] HTTP ${res.status} ${maskKey(url).slice(0, 80)}… body: ${body.slice(0, 300)}`);
+        return [];
+      }
+
+      // Success — remember this endpoint for subsequent calls.
+      if (!workingEndpoint) {
+        workingEndpoint = base;
+        console.log(`[sam] using endpoint: ${base}`);
+      }
+
+      const data = await res.json();
+      const raw: SamRaw[] = Array.isArray(data?.opportunitiesData) ? data.opportunitiesData : [];
+      const mapped: SamOpportunity[] = [];
+      for (const r of raw) {
+        const m = mapOpportunity(r);
+        if (m) mapped.push(m);
+      }
+      return mapped;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[sam] fetch error for ${maskKey(url).slice(0, 80)}: ${msg}`);
     }
-    const data = await res.json();
-    const raw: SamRaw[] = Array.isArray(data?.opportunitiesData) ? data.opportunitiesData : [];
-    const mapped: SamOpportunity[] = [];
-    for (const r of raw) {
-      const m = mapOpportunity(r);
-      if (m) mapped.push(m);
-    }
-    return mapped;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[sam] error: ${msg}`);
-    return [];
   }
+
+  console.error("[sam] all endpoints returned 404 — check that SAM_API_KEY is a valid Opportunities API key");
+  return [];
 }
 
 export async function fetchSamOpportunities(daysBack = 90): Promise<{
   opportunities: SamOpportunity[];
   debug: string;
 }> {
+  const apiKey = process.env.SAM_API_KEY;
+  if (!apiKey) {
+    console.error("[sam] SAM_API_KEY not set");
+    return { opportunities: [], debug: "SAM_API_KEY not set" };
+  }
+
+  console.log(`[sam] API key present (${apiKey.length} chars, starts with ${apiKey.slice(0, 4)}…)`);
+
   const now = new Date();
   const from = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
   const postedFrom = fmtDate(from);
   const postedTo = fmtDate(now);
 
-  // Parallel searches: title keywords, NAICS codes, LQDT-specific
-  const searches = [
-    samFetch({ postedFrom, postedTo, title: "surplus", ptype: "o,p,r,k", limit: "500" }),
-    samFetch({ postedFrom, postedTo, title: "liquidation", ptype: "o,p,r,k", limit: "500" }),
-    samFetch({ postedFrom, postedTo, title: "disposal", ptype: "o,p,r,k", limit: "500" }),
-    samFetch({ postedFrom, postedTo, title: "auction", ptype: "o,p,r,k", limit: "500" }),
-    samFetch({ postedFrom, postedTo, ncode: "561499", limit: "500" }),
-    samFetch({ postedFrom, postedTo, ncode: "423930", limit: "500" }),
-    samFetch({ postedFrom, postedTo, title: "liquidity services", limit: "200" }),
-  ];
+  // First, run a minimal probe to find the working endpoint and verify the key.
+  const probe = await samFetch(apiKey, { postedFrom, postedTo, limit: "1" });
+  const probeOk = probe.length >= 0 && workingEndpoint != null;
 
-  const results = await Promise.all(searches);
+  if (!probeOk) {
+    return {
+      opportunities: [],
+      debug: "probe failed — all endpoints returned 404 (invalid key or endpoint down)",
+    };
+  }
+
+  // Run searches. Keep query count low — public keys may have daily limits.
+  const searches = await Promise.all([
+    samFetch(apiKey, { postedFrom, postedTo, title: "surplus", limit: "500" }),
+    samFetch(apiKey, { postedFrom, postedTo, title: "liquidation", limit: "500" }),
+    samFetch(apiKey, { postedFrom, postedTo, title: "disposal", limit: "500" }),
+    samFetch(apiKey, { postedFrom, postedTo, ncode: "561499", limit: "500" }),
+    samFetch(apiKey, { postedFrom, postedTo, ncode: "423930", limit: "500" }),
+  ]);
+
   const seen = new Set<string>();
   const opportunities: SamOpportunity[] = [];
-  for (const batch of results) {
+  for (const batch of searches) {
     for (const opp of batch) {
       if (seen.has(opp.notice_id)) continue;
       seen.add(opp.notice_id);
@@ -142,9 +186,9 @@ export async function fetchSamOpportunities(daysBack = 90): Promise<{
     }
   }
 
-  const c = results.map((r) => r.length);
+  const c = searches.map((r) => r.length);
   return {
     opportunities,
-    debug: `surplus:${c[0]} liquidation:${c[1]} disposal:${c[2]} auction:${c[3]} naics561499:${c[4]} naics423930:${c[5]} lqdt:${c[6]} total_unique:${opportunities.length}`,
+    debug: `endpoint:${workingEndpoint} surplus:${c[0]} liquidation:${c[1]} disposal:${c[2]} naics561499:${c[3]} naics423930:${c[4]} unique:${opportunities.length}`,
   };
 }
