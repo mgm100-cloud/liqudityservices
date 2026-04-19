@@ -1,7 +1,17 @@
 import type { StateAdapter, StateContract } from "./types";
 import { washingtonAdapter } from "./washington";
+import { marylandAdapter } from "./maryland";
+import { chicagoAdapter } from "./chicago";
+import { iowaAdapter } from "./iowa";
+import { newJerseyAdapter } from "./newjersey";
 
-export const STATE_ADAPTERS: StateAdapter[] = [washingtonAdapter];
+export const STATE_ADAPTERS: StateAdapter[] = [
+  washingtonAdapter,
+  marylandAdapter,
+  chicagoAdapter,
+  iowaAdapter,
+  newJerseyAdapter,
+];
 
 export async function fetchAllStateContracts(): Promise<{
   contracts: StateContract[];
