@@ -1,6 +1,6 @@
 import type { StateAdapter, StateContract } from "./types";
 import { normalizeVendor, SEARCH_TERMS } from "./types";
-import { socrataFetchByTerms } from "./socrata";
+import { socrataFetchByWhere } from "./socrata";
 
 type MdRow = {
   fiscal_year?: string;
@@ -23,8 +23,9 @@ export const marylandAdapter: StateAdapter = {
   stateCode: "MD",
   portal: "opendata.maryland.gov",
   async fetch(): Promise<StateContract[]> {
-    const rows = await socrataFetchByTerms<MdRow>(
+    const rows = await socrataFetchByWhere<MdRow>(
       { portal: "opendata.maryland.gov", datasetId: "7syw-q4cy" },
+      "vendor_name",
       SEARCH_TERMS,
     );
     const out: StateContract[] = [];
