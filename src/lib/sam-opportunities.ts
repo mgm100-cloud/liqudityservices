@@ -158,6 +158,25 @@ async function samFetch(
   return [];
 }
 
+// LQDT identity: UEI + company/brand names that appear as awardee on federal contracts.
+const LQDT_UEI = "WJV4A6AM6ZN6";
+const LQDT_NAME_PATTERNS = [
+  "liquidity services",
+  "govdeals",
+  "allsurplus",
+  "bid4assets",
+  "government liquidation",
+  "govplanet",
+  "network international",
+];
+
+function matchesLqdt(opp: SamOpportunity): boolean {
+  if (opp.awardee_uei && opp.awardee_uei.toUpperCase() === LQDT_UEI) return true;
+  const name = (opp.awardee_name ?? "").toLowerCase();
+  if (name && LQDT_NAME_PATTERNS.some((p) => name.includes(p))) return true;
+  return false;
+}
+
 export async function fetchSamOpportunities(daysBack = 90): Promise<{
   opportunities: SamOpportunity[];
   debug: string;
@@ -175,7 +194,7 @@ export async function fetchSamOpportunities(daysBack = 90): Promise<{
   const postedFrom = fmtDate(from);
   const postedTo = fmtDate(now);
 
-  // First, run a minimal probe to find the working endpoint/auth combo.
+  // Probe first to find the working endpoint/auth combo.
   await samFetch(apiKey, { postedFrom, postedTo, limit: "1" });
   if (!workingConfig) {
     return {
@@ -184,28 +203,44 @@ export async function fetchSamOpportunities(daysBack = 90): Promise<{
     };
   }
 
-  // Run searches. Keep query count low — public keys may have daily limits.
+  // Strategy: the API has no awardee filter, so we fetch candidate sets and
+  // post-filter to only opportunities where the awardee is actually LQDT
+  // (matched by UEI or brand-name substring).
+  //
+  // Candidate sources:
+  //  (a) title searches for LQDT brand names — catches opps that name LQDT
+  //      explicitly (works for solicitations where awardee is unset)
+  //  (b) award-type searches (ptype=a) in LQDT's NAICS codes, where we can
+  //      cross-check awardee UEI/name
   const searches = await Promise.all([
-    samFetch(apiKey, { postedFrom, postedTo, title: "surplus", limit: "500" }),
-    samFetch(apiKey, { postedFrom, postedTo, title: "liquidation", limit: "500" }),
-    samFetch(apiKey, { postedFrom, postedTo, title: "disposal", limit: "500" }),
-    samFetch(apiKey, { postedFrom, postedTo, ncode: "561499", limit: "500" }),
-    samFetch(apiKey, { postedFrom, postedTo, ncode: "423930", limit: "500" }),
+    samFetch(apiKey, { postedFrom, postedTo, title: "liquidity services", limit: "200" }),
+    samFetch(apiKey, { postedFrom, postedTo, title: "govdeals", limit: "200" }),
+    samFetch(apiKey, { postedFrom, postedTo, title: "allsurplus", limit: "200" }),
+    samFetch(apiKey, { postedFrom, postedTo, title: "bid4assets", limit: "200" }),
+    samFetch(apiKey, { postedFrom, postedTo, title: "government liquidation", limit: "200" }),
+    samFetch(apiKey, { postedFrom, postedTo, ncode: "561499", ptype: "a", limit: "1000" }),
+    samFetch(apiKey, { postedFrom, postedTo, ncode: "423930", ptype: "a", limit: "1000" }),
   ]);
+
+  const titleHits = searches.slice(0, 5).flat();
+  const awardCandidates = searches.slice(5).flat();
+  const candidateCount = titleHits.length + awardCandidates.length;
+
+  // Title-keyword hits already match an LQDT brand in the title; keep them all.
+  // For broader award-type searches, keep only records whose awardee matches LQDT.
+  const keepers = [...titleHits, ...awardCandidates.filter(matchesLqdt)];
 
   const seen = new Set<string>();
   const opportunities: SamOpportunity[] = [];
-  for (const batch of searches) {
-    for (const opp of batch) {
-      if (seen.has(opp.notice_id)) continue;
-      seen.add(opp.notice_id);
-      opportunities.push(opp);
-    }
+  for (const opp of keepers) {
+    if (seen.has(opp.notice_id)) continue;
+    seen.add(opp.notice_id);
+    opportunities.push(opp);
   }
 
   const c = searches.map((r) => r.length);
   return {
     opportunities,
-    debug: `endpoint:${workingConfig?.endpoint} auth:${workingConfig?.authMode} surplus:${c[0]} liquidation:${c[1]} disposal:${c[2]} naics561499:${c[3]} naics423930:${c[4]} unique:${opportunities.length}`,
+    debug: `endpoint:${workingConfig?.endpoint} auth:${workingConfig?.authMode} titles[ls/gd/as/b4a/gl]:${c[0]}/${c[1]}/${c[2]}/${c[3]}/${c[4]} awards[561499/423930]:${c[5]}/${c[6]} candidates:${candidateCount} lqdt_matched:${opportunities.length}`,
   };
 }
