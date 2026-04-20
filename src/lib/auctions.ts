@@ -34,12 +34,16 @@ async function fetchUsdRates(): Promise<Record<string, number>> {
   }
 }
 
-function toUsd(amount: number, currencyCode: string, rates: Record<string, number>): number {
+// Returns the USD-equivalent amount, or null if the currency is non-USD and
+// no rate is available. Returning null is important: storing the raw amount
+// would silently pollute current_bid_usd / final_price_usd with foreign-
+// currency values labeled as USD.
+function toUsd(amount: number, currencyCode: string, rates: Record<string, number>): number | null {
   if (!currencyCode || currencyCode === "USD") return amount;
   const code = CURRENCY_MAP[currencyCode] ?? currencyCode;
   const rate = rates[code];
   if (rate && rate > 0) return amount / rate;
-  return amount;
+  return null;
 }
 
 function safeNumber(value: unknown, fallback = 0): number {
@@ -84,7 +88,7 @@ type AuctionRow = {
   seller_company: string | null;
   category: string | null;
   currency_code: string | null;
-  current_bid_usd: number;
+  current_bid_usd: number | null;
   bid_count: number;
   close_time_utc: string | null;
   status: "open";
@@ -97,7 +101,8 @@ function parseListing(platform: "AD" | "GD", raw: Record<string, unknown>, rates
 
   const currency = typeof raw.currencyCode === "string" ? raw.currencyCode : "USD";
   const rawBid = safeNumber(raw.currentBid);
-  const currentBidUsd = toUsd(rawBid, currency, rates);
+  const usd = toUsd(rawBid, currency, rates);
+  const currentBidUsd = usd === null ? null : Math.round(usd * 100) / 100;
   const endDate = typeof raw.assetAuctionEndDateUtc === "string" ? raw.assetAuctionEndDateUtc : null;
 
   return {
@@ -107,7 +112,7 @@ function parseListing(platform: "AD" | "GD", raw: Record<string, unknown>, rates
     seller_company: typeof raw.companyName === "string" ? raw.companyName : null,
     category: typeof raw.categoryDescription === "string" ? raw.categoryDescription : null,
     currency_code: currency,
-    current_bid_usd: Math.round(currentBidUsd * 100) / 100,
+    current_bid_usd: currentBidUsd,
     bid_count: safeNumber(raw.bidCount),
     close_time_utc: endDate,
     status: "open",
@@ -162,6 +167,7 @@ type PlatformIngestResult = {
   upserted: number;
   pagesFetched: number;
   rowsParsed: number;
+  rowsSkippedFx: number;
   total: number | null;
   lastStatus: number | null;
   fetchError: string | null;
@@ -171,7 +177,7 @@ type PlatformIngestResult = {
 
 async function ingestPlatform(platform: "AD" | "GD", rates: Record<string, number>, nowIso: string): Promise<PlatformIngestResult> {
   const result: PlatformIngestResult = {
-    upserted: 0, pagesFetched: 0, rowsParsed: 0, total: null,
+    upserted: 0, pagesFetched: 0, rowsParsed: 0, rowsSkippedFx: 0, total: null,
     lastStatus: null, fetchError: null, upsertError: null, responseKeys: null,
   };
 
@@ -188,6 +194,7 @@ async function ingestPlatform(platform: "AD" | "GD", rates: Record<string, numbe
       .map((l) => parseListing(platform, l, rates, nowIso))
       .filter((r): r is AuctionRow => r !== null);
     result.rowsParsed += rows.length;
+    result.rowsSkippedFx += rows.filter((r) => r.current_bid_usd === null).length;
 
     if (rows.length > 0) {
       const { error } = await supabase
@@ -204,7 +211,7 @@ async function ingestPlatform(platform: "AD" | "GD", rates: Record<string, numbe
   return result;
 }
 
-type ClosureResult = { sold: number; nosale: number };
+type ClosureResult = { sold: number; nosale: number; unknown: number };
 
 async function sweepClosures(nowIso: string): Promise<ClosureResult> {
   const { data, error } = await supabase
@@ -212,15 +219,24 @@ async function sweepClosures(nowIso: string): Promise<ClosureResult> {
     .select("id, bid_count, current_bid_usd")
     .eq("status", "open")
     .lt("close_time_utc", nowIso);
-  if (error || !data) return { sold: 0, nosale: 0 };
+  if (error || !data) return { sold: 0, nosale: 0, unknown: 0 };
 
   const soldIds: number[] = [];
   const nosaleIds: number[] = [];
+  const unknownIds: number[] = [];
   const finalPriceById = new Map<number, number>();
   for (const row of data) {
-    if ((row.bid_count ?? 0) > 0) {
-      soldIds.push(row.id);
-      finalPriceById.set(row.id, row.current_bid_usd ?? 0);
+    const bids = row.bid_count ?? 0;
+    if (bids > 0) {
+      // Sold, but we need a USD price to record. If current_bid_usd is null
+      // the bid was in a foreign currency we couldn't convert — mark unknown
+      // so it doesn't pollute realized GMV with a bogus 0.
+      if (row.current_bid_usd != null) {
+        soldIds.push(row.id);
+        finalPriceById.set(row.id, row.current_bid_usd);
+      } else {
+        unknownIds.push(row.id);
+      }
     } else {
       nosaleIds.push(row.id);
     }
@@ -258,7 +274,18 @@ async function sweepClosures(nowIso: string): Promise<ClosureResult> {
     }
   }
 
-  return { sold: soldIds.length, nosale: nosaleIds.length };
+  if (unknownIds.length > 0) {
+    const CHUNK = 500;
+    for (let i = 0; i < unknownIds.length; i += CHUNK) {
+      const chunk = unknownIds.slice(i, i + CHUNK);
+      await supabase
+        .from("auctions")
+        .update({ status: "unknown", closed_at: nowIso })
+        .in("id", chunk);
+    }
+  }
+
+  return { sold: soldIds.length, nosale: nosaleIds.length, unknown: unknownIds.length };
 }
 
 export type AuctionsIngestResult = {
